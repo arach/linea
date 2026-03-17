@@ -1,12 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { ReaderPage } from "@/lib/pdf";
+import type { ReaderPage, ReaderParagraph } from "@/lib/pdf";
 import { clamp } from "@/lib/utils";
 
 type VoiceConsoleOptions = {
   pages: ReaderPage[];
   selectedPage: number;
   onSelectPage: (pageNumber: number) => void;
+};
+
+type SpeechSession = {
+  pageNumber: number;
+  text: string;
+  label: string;
+  paragraphId: string | null;
+  charOffsetBase: number;
+  kind: "page" | "paragraph" | "selection";
 };
 
 function isBrowser() {
@@ -34,6 +43,7 @@ export function useVoiceConsole({
   const [isListening, setIsListening] = useState(false);
   const [lastCommand, setLastCommand] = useState("");
   const [spokenCharacterIndex, setSpokenCharacterIndex] = useState(0);
+  const [speechSession, setSpeechSession] = useState<SpeechSession | null>(null);
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
@@ -44,17 +54,29 @@ export function useVoiceConsole({
     [pages, selectedPage],
   );
   const activeParagraph = useMemo(() => {
-    if (!selectedPageData?.paragraphs.length) {
+    const pageForSession =
+      pages.find((page) => page.pageNumber === (speechSession?.pageNumber ?? selectedPage)) ??
+      selectedPageData;
+
+    if (!pageForSession?.paragraphs.length) {
       return null;
     }
 
+    if (speechSession?.kind === "selection" && speechSession.paragraphId) {
+      return (
+        pageForSession.paragraphs.find((paragraph) => paragraph.id === speechSession.paragraphId) ??
+        null
+      );
+    }
+
     return (
-      selectedPageData.paragraphs.find(
+      pageForSession.paragraphs.find(
         (paragraph) =>
-          spokenCharacterIndex >= paragraph.start && spokenCharacterIndex < paragraph.end + 2,
+          spokenCharacterIndex + (speechSession?.charOffsetBase ?? 0) >= paragraph.start &&
+          spokenCharacterIndex + (speechSession?.charOffsetBase ?? 0) < paragraph.end + 2,
       ) ?? selectedPageData.paragraphs[0]
     );
-  }, [selectedPageData, spokenCharacterIndex]);
+  }, [pages, selectedPage, selectedPageData, speechSession, spokenCharacterIndex]);
 
   useEffect(() => {
     if (!isBrowser()) {
@@ -99,32 +121,37 @@ export function useVoiceConsole({
     setIsSpeaking(false);
     setIsPaused(false);
     setSpokenCharacterIndex(0);
+    setSpeechSession(null);
   };
 
-  const speakPage = (page = selectedPageData) => {
-    if (!isBrowser() || !page?.text) {
+  const speakSession = (session: SpeechSession) => {
+    if (!isBrowser() || !session.text.trim()) {
       return;
     }
 
     stopSpeaking();
 
-    const utterance = new SpeechSynthesisUtterance(page.text.slice(0, 12000));
+    const utterance = new SpeechSynthesisUtterance(session.text.slice(0, 12000));
     utterance.voice = voices.find((voice) => voice.name === selectedVoice) ?? null;
     utterance.rate = rate;
     utterance.onstart = () => {
       setIsSpeaking(true);
       setIsPaused(false);
       setSpokenCharacterIndex(0);
+      setSpeechSession(session);
+      onSelectPage(session.pageNumber);
     };
     utterance.onend = () => {
       setIsSpeaking(false);
       setIsPaused(false);
       setSpokenCharacterIndex(0);
+      setSpeechSession(null);
     };
     utterance.onerror = () => {
       setIsSpeaking(false);
       setIsPaused(false);
       setSpokenCharacterIndex(0);
+      setSpeechSession(null);
     };
     utterance.onboundary = (event) => {
       setSpokenCharacterIndex(event.charIndex);
@@ -132,7 +159,57 @@ export function useVoiceConsole({
 
     utteranceRef.current = utterance;
     window.speechSynthesis.speak(utterance);
-    setLastCommand(`Reading page ${page.pageNumber}`);
+    setLastCommand(session.label);
+  };
+
+  const speakPage = (page = selectedPageData) => {
+    if (!page?.text) {
+      return;
+    }
+
+    speakSession({
+      pageNumber: page.pageNumber,
+      text: page.text,
+      label: `Reading page ${page.pageNumber}`,
+      paragraphId: page.paragraphs[0]?.id ?? null,
+      charOffsetBase: 0,
+      kind: "page",
+    });
+  };
+
+  const speakFromParagraph = (page: ReaderPage | null, paragraph: ReaderParagraph | null) => {
+    if (!page || !paragraph) {
+      return;
+    }
+
+    speakSession({
+      pageNumber: page.pageNumber,
+      text: page.text.slice(paragraph.start),
+      label: `Reading from paragraph ${paragraph.id.replace("page-", "p")}`,
+      paragraphId: paragraph.id,
+      charOffsetBase: paragraph.start,
+      kind: "paragraph",
+    });
+  };
+
+  const speakSelection = (selectionText: string, page: ReaderPage | null, paragraphId: string | null) => {
+    const text = selectionText.trim();
+
+    if (!text || !page) {
+      return;
+    }
+
+    const paragraph = page.paragraphs.find((entry) => entry.id === paragraphId) ?? null;
+    const baseOffset = paragraph ? Math.max(0, paragraph.text.indexOf(text)) + paragraph.start : 0;
+
+    speakSession({
+      pageNumber: page.pageNumber,
+      text,
+      label: "Reading selection",
+      paragraphId,
+      charOffsetBase: Number.isFinite(baseOffset) ? baseOffset : 0,
+      kind: "selection",
+    });
   };
 
   const pauseOrResume = () => {
@@ -141,7 +218,11 @@ export function useVoiceConsole({
     }
 
     if (!isSpeaking && !isPaused) {
-      speakPage();
+      if (speechSession?.kind === "selection" && selectedPageData) {
+        speakSession(speechSession);
+      } else {
+        speakPage();
+      }
       return;
     }
 
@@ -248,8 +329,13 @@ export function useVoiceConsole({
     lastCommand,
     spokenCharacterIndex,
     activeParagraphId: activeParagraph?.id ?? null,
+    activePageNumber: speechSession?.pageNumber ?? selectedPage,
+    currentSessionLabel: speechSession?.label ?? "",
+    currentSessionKind: speechSession?.kind ?? null,
     recognitionSupported,
     speakPage,
+    speakFromParagraph,
+    speakSelection,
     pauseOrResume,
     stopSpeaking,
     startListening,

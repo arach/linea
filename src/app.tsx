@@ -1,6 +1,7 @@
 import { AudioLines, LibraryBig, Orbit, Sparkles, Upload } from "lucide-react";
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 
+import { FloatingPlayer } from "@/components/floating-player";
 import { PdfDropzone } from "@/components/pdf-dropzone";
 import { ReaderFocus } from "@/components/reader-focus";
 import { ReaderMinimap } from "@/components/reader-minimap";
@@ -9,7 +10,7 @@ import { VoiceConsole } from "@/components/voice-console";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import type { ExtractionProgress, ReaderDocument } from "@/lib/pdf";
+import type { ExtractionProgress, ReaderDocument, ReaderParagraph } from "@/lib/pdf";
 import { loadReaderDocument } from "@/lib/pdf";
 import {
   defaultReaderSettings,
@@ -29,6 +30,10 @@ export function App({ initialDocument }: AppProps) {
   const [progress, setProgress] = useState<ExtractionProgress | null>(null);
   const [error, setError] = useState("");
   const [settings, setSettings] = useState<ReaderSettingsState>(defaultReaderSettings);
+  const [selectedPassage, setSelectedPassage] = useState<{
+    text: string;
+    paragraphId: string | null;
+  } | null>(null);
 
   const currentPage = useMemo(
     () => document?.pages.find((page) => page.pageNumber === selectedPage) ?? null,
@@ -103,6 +108,23 @@ export function App({ initialDocument }: AppProps) {
     }
 
     void handleFile(file);
+  };
+
+  const handleReadFromParagraph = (paragraph: ReaderParagraph) => {
+    const selection = typeof window !== "undefined" ? window.getSelection()?.toString().trim() : "";
+    if (selection) {
+      return;
+    }
+
+    voice.speakFromParagraph(currentPage, paragraph);
+  };
+
+  const handleReadSelection = () => {
+    if (!selectedPassage) {
+      return;
+    }
+
+    voice.speakSelection(selectedPassage.text, currentPage, selectedPassage.paragraphId);
   };
 
   return (
@@ -252,10 +274,26 @@ export function App({ initialDocument }: AppProps) {
                   selectedPage={selectedPage}
                   activeParagraphId={voice.activeParagraphId}
                   settings={settings}
+                  onSelectText={setSelectedPassage}
+                  onReadFromParagraph={handleReadFromParagraph}
                   onSelectPage={setSelectedPage}
                 />
               </div>
             </section>
+
+            <FloatingPlayer
+              isSpeaking={voice.isSpeaking}
+              isPaused={voice.isPaused}
+              activePageNumber={voice.activePageNumber}
+              activeParagraphId={voice.activeParagraphId}
+              currentSessionLabel={voice.currentSessionLabel}
+              currentSessionKind={voice.currentSessionKind}
+              hasSelection={Boolean(selectedPassage?.text)}
+              selectionPreview={selectedPassage?.text ?? ""}
+              onPauseOrResume={voice.pauseOrResume}
+              onStop={voice.stopSpeaking}
+              onReadSelection={handleReadSelection}
+            />
           </>
         )}
       </main>

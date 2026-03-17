@@ -4,6 +4,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import express from "express";
 
+import { createVoxRouter } from "./vox/routes";
+
 function serializeState(value: unknown) {
   return JSON.stringify(value ?? null).replace(/</g, "\\u003c");
 }
@@ -16,6 +18,7 @@ const port = Number(process.env.PORT ?? 4173);
 const template = await fs.readFile(path.resolve(clientDist, "index.html"), "utf-8");
 const app = express();
 
+app.use("/api/vox", createVoxRouter());
 app.use(
   express.static(clientDist, {
     index: false,

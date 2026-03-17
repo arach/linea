@@ -1,9 +1,10 @@
-import { ChevronLeft, ChevronRight, FileText, Headphones, ScanSearch } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileText, Headphones, ScanSearch, Volume2 } from "lucide-react";
+import { useEffect, useRef } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { ReaderDocument } from "@/lib/pdf";
+import type { ReaderDocument, ReaderParagraph } from "@/lib/pdf";
 import {
   type ReaderSettings,
   readerFonts,
@@ -16,6 +17,8 @@ type ReaderFocusProps = {
   selectedPage: number;
   activeParagraphId?: string | null;
   settings: ReaderSettings;
+  onSelectText: (selection: { text: string; paragraphId: string | null } | null) => void;
+  onReadFromParagraph: (paragraph: ReaderParagraph) => void;
   onSelectPage: (pageNumber: number) => void;
 };
 
@@ -24,8 +27,12 @@ export function ReaderFocus({
   selectedPage,
   activeParagraphId,
   settings,
+  onSelectText,
+  onReadFromParagraph,
   onSelectPage,
 }: ReaderFocusProps) {
+  const articleRef = useRef<HTMLElement | null>(null);
+
   if (!document) {
     return (
       <Card className="min-h-[720px] overflow-hidden">
@@ -76,6 +83,40 @@ export function ReaderFocus({
   const theme = readerThemes[settings.theme];
   const font = readerFonts[settings.font];
 
+  useEffect(() => {
+    onSelectText(null);
+  }, [onSelectText, page.pageNumber]);
+
+  const handleSelection = () => {
+    const selection = window.getSelection();
+
+    if (!selection || selection.isCollapsed || !articleRef.current) {
+      onSelectText(null);
+      return;
+    }
+
+    const text = selection.toString().trim();
+    if (!text) {
+      onSelectText(null);
+      return;
+    }
+
+    const anchorNode = selection.anchorNode;
+    const anchorElement =
+      anchorNode instanceof Element ? anchorNode : anchorNode?.parentElement ?? null;
+
+    if (!anchorElement || !articleRef.current.contains(anchorElement)) {
+      onSelectText(null);
+      return;
+    }
+
+    const paragraphElement = anchorElement.closest<HTMLElement>("[data-paragraph-id]");
+    onSelectText({
+      text,
+      paragraphId: paragraphElement?.dataset.paragraphId ?? null,
+    });
+  };
+
   return (
     <Card className={cn("min-h-[calc(100vh-8rem)] overflow-hidden", theme.surfaceClass)}>
       <CardHeader className={cn("gap-5 border-b px-8 py-7 md:px-10", theme.chromeClass)}>
@@ -122,6 +163,9 @@ export function ReaderFocus({
       <CardContent className="px-6 py-8 md:px-10 md:py-10">
         {page.hasText ? (
           <article
+            ref={articleRef}
+            onMouseUp={handleSelection}
+            onKeyUp={handleSelection}
             className={cn("mx-auto max-w-[820px] space-y-5 antialiased", font.className)}
             style={{
               fontSize: `${settings.fontSize}px`,
@@ -129,15 +173,22 @@ export function ReaderFocus({
             }}
           >
             {page.paragraphs.map((paragraph) => (
-              <p
+              <button
                 key={paragraph.id}
+                type="button"
+                data-paragraph-id={paragraph.id}
+                onClick={() => onReadFromParagraph(paragraph)}
                 className={cn(
-                  "rounded-[18px] px-4 py-3 transition-colors duration-200",
+                  "group block w-full cursor-text select-text rounded-[18px] px-4 py-3 text-left transition-colors duration-200",
                   activeParagraphId === paragraph.id && theme.activeParagraphClass,
                 )}
               >
-                {paragraph.text}
-              </p>
+                <span className="mb-2 hidden items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/80 group-hover:inline-flex">
+                  <Volume2 className="size-3.5" />
+                  Read from here
+                </span>
+                <span>{paragraph.text}</span>
+              </button>
             ))}
           </article>
         ) : (

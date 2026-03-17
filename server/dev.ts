@@ -4,6 +4,8 @@ import path from "node:path";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 
+import { createVoxRouter } from "./vox/routes";
+
 function serializeState(value: unknown) {
   return JSON.stringify(value ?? null).replace(/</g, "\\u003c");
 }
@@ -20,6 +22,7 @@ const vite = await createViteServer({
   },
 });
 
+app.use("/api/vox", createVoxRouter());
 app.use(vite.middlewares);
 
 app.use(async (req, res, next) => {
