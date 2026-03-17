@@ -4,12 +4,18 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ReaderDocument } from "@/lib/pdf";
+import {
+  type ReaderSettings,
+  readerFonts,
+  readerThemes,
+} from "@/lib/reader-presentation";
 import { cn, formatCount } from "@/lib/utils";
 
 type ReaderFocusProps = {
   document: ReaderDocument | null;
   selectedPage: number;
   activeParagraphId?: string | null;
+  settings: ReaderSettings;
   onSelectPage: (pageNumber: number) => void;
 };
 
@@ -17,6 +23,7 @@ export function ReaderFocus({
   document,
   selectedPage,
   activeParagraphId,
+  settings,
   onSelectPage,
 }: ReaderFocusProps) {
   if (!document) {
@@ -66,18 +73,22 @@ export function ReaderFocus({
   }
 
   const page = document.pages.find((entry) => entry.pageNumber === selectedPage) ?? document.pages[0];
+  const theme = readerThemes[settings.theme];
+  const font = readerFonts[settings.font];
 
   return (
-    <Card className="min-h-[720px] overflow-hidden">
-      <CardHeader className="gap-5 border-b border-border/40">
+    <Card className={cn("min-h-[calc(100vh-8rem)] overflow-hidden", theme.surfaceClass)}>
+      <CardHeader className={cn("gap-5 border-b px-8 py-7 md:px-10", theme.chromeClass)}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-3">
-            <Badge variant="accent">Focused reading</Badge>
+            <Badge variant="accent">Reading view</Badge>
             <div className="space-y-2">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+              <div className={cn("text-[11px] font-semibold uppercase tracking-[0.24em]", theme.mutedClass)}>
                 {document.fileName}
               </div>
-              <CardTitle className="max-w-3xl text-3xl leading-tight">{page.title}</CardTitle>
+              <CardTitle className={cn("max-w-4xl text-4xl leading-tight md:text-5xl", theme.titleClass)}>
+                {page.title}
+              </CardTitle>
             </div>
           </div>
 
@@ -101,22 +112,28 @@ export function ReaderFocus({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-4 text-xs uppercase tracking-[0.2em] text-muted-foreground">
+        <div className={cn("flex flex-wrap items-center gap-4 text-xs uppercase tracking-[0.2em]", theme.mutedClass)}>
           <span>Page {page.pageNumber}</span>
           <span>{formatCount(page.wordCount)} words</span>
           <span>{page.hasText ? "Extracted text ready" : "No text layer detected"}</span>
         </div>
       </CardHeader>
 
-      <CardContent className="pt-8">
+      <CardContent className="px-6 py-8 md:px-10 md:py-10">
         {page.hasText ? (
-          <article className="mx-auto max-w-4xl space-y-5 text-[1.05rem] leading-8 text-foreground/92">
+          <article
+            className={cn("mx-auto max-w-[820px] space-y-5 antialiased", font.className)}
+            style={{
+              fontSize: `${settings.fontSize}px`,
+              lineHeight: settings.lineHeight,
+            }}
+          >
             {page.paragraphs.map((paragraph) => (
               <p
                 key={paragraph.id}
                 className={cn(
-                  "rounded-[18px] px-3 py-2 transition-colors duration-200",
-                  activeParagraphId === paragraph.id && "bg-primary/10 text-primary-foreground",
+                  "rounded-[18px] px-4 py-3 transition-colors duration-200",
+                  activeParagraphId === paragraph.id && theme.activeParagraphClass,
                 )}
               >
                 {paragraph.text}
@@ -124,9 +141,9 @@ export function ReaderFocus({
             ))}
           </article>
         ) : (
-          <div className="mx-auto max-w-2xl rounded-[24px] border border-border/50 bg-white/5 p-8">
+          <div className={cn("mx-auto max-w-2xl rounded-[24px] border p-8", theme.chromeClass)}>
             <h3 className="font-serif text-2xl">No extractable text on this page yet.</h3>
-            <p className="mt-4 text-sm leading-7 text-muted-foreground">
+            <p className={cn("mt-4 text-sm leading-7", theme.mutedClass)}>
               This usually means the PDF page is image-based or needs OCR. The scaffold is ready for
               an OCR step later, but this first pass keeps the browser-only stack lean.
             </p>

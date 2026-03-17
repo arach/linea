@@ -1,14 +1,20 @@
-import { AudioLines, BookMarked, LibraryBig, Orbit, Sparkles } from "lucide-react";
-import { startTransition, useMemo, useState } from "react";
+import { AudioLines, LibraryBig, Orbit, Sparkles, Upload } from "lucide-react";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 
 import { PdfDropzone } from "@/components/pdf-dropzone";
 import { ReaderFocus } from "@/components/reader-focus";
 import { ReaderMinimap } from "@/components/reader-minimap";
+import { ReaderSettings } from "@/components/reader-settings";
 import { VoiceConsole } from "@/components/voice-console";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { ExtractionProgress, ReaderDocument } from "@/lib/pdf";
 import { loadReaderDocument } from "@/lib/pdf";
+import {
+  defaultReaderSettings,
+  type ReaderSettings as ReaderSettingsState,
+} from "@/lib/reader-presentation";
 import { useVoiceConsole } from "@/lib/voice";
 
 type AppProps = {
@@ -16,11 +22,13 @@ type AppProps = {
 };
 
 export function App({ initialDocument }: AppProps) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [document, setDocument] = useState<ReaderDocument | null>(initialDocument);
   const [selectedPage, setSelectedPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<ExtractionProgress | null>(null);
   const [error, setError] = useState("");
+  const [settings, setSettings] = useState<ReaderSettingsState>(defaultReaderSettings);
 
   const currentPage = useMemo(
     () => document?.pages.find((page) => page.pageNumber === selectedPage) ?? null,
@@ -32,6 +40,37 @@ export function App({ initialDocument }: AppProps) {
     selectedPage,
     onSelectPage: setSelectedPage,
   });
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const savedSettings = window.localStorage.getItem("linea:reader-settings");
+
+    if (!savedSettings) {
+      return;
+    }
+
+    try {
+      const parsedSettings = JSON.parse(savedSettings) as Partial<ReaderSettingsState>;
+
+      setSettings((current) => ({
+        ...current,
+        ...parsedSettings,
+      }));
+    } catch {
+      window.localStorage.removeItem("linea:reader-settings");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem("linea:reader-settings", JSON.stringify(settings));
+  }, [settings]);
 
   const handleFile = async (file: File) => {
     setLoading(true);
@@ -57,22 +96,30 @@ export function App({ initialDocument }: AppProps) {
     }
   };
 
+  const handleReplacementFile = (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file || file.type !== "application/pdf") {
+      return;
+    }
+
+    void handleFile(file);
+  };
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(247,203,110,0.18),transparent_30%),radial-gradient(circle_at_80%_0%,rgba(90,167,255,0.22),transparent_34%),linear-gradient(180deg,#090b11_0%,#0d1220_42%,#090b11_100%)]" />
-        <div className="absolute inset-0 opacity-40 [background-image:linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] [background-size:40px_40px]" />
-        <div className="absolute left-[12%] top-24 h-56 w-56 rounded-full bg-primary/18 blur-[120px]" />
-        <div className="absolute bottom-0 right-[10%] h-72 w-72 rounded-full bg-sky-400/12 blur-[140px]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(247,203,110,0.12),transparent_28%),radial-gradient(circle_at_100%_0%,rgba(90,167,255,0.16),transparent_34%),linear-gradient(180deg,#0a0e17_0%,#0f1422_45%,#0a0e17_100%)]" />
+        <div className="absolute inset-0 opacity-30 [background-image:linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] [background-size:44px_44px]" />
+        <div className="absolute left-[10%] top-16 h-48 w-48 rounded-full bg-primary/14 blur-[120px]" />
       </div>
 
-      <main className="mx-auto max-w-[1600px] px-4 py-6 md:px-6 lg:px-8">
+      <main className="mx-auto max-w-[1680px] px-4 py-5 md:px-5 lg:px-6">
         {!document ? (
           <section className="flex min-h-[calc(100vh-3rem)] items-center">
-            <div className="mx-auto grid w-full max-w-[1080px] gap-6">
+            <div className="mx-auto grid w-full max-w-[920px] gap-6">
               <div className="space-y-4 text-center">
                 <div className="flex flex-wrap items-center justify-center gap-3">
-                  <Badge variant="accent">Linea / app shell</Badge>
+                  <Badge variant="accent">Linea / workspace</Badge>
                   <Badge>Local PDF intake</Badge>
                 </div>
                 <div className="space-y-3">
@@ -83,8 +130,9 @@ export function App({ initialDocument }: AppProps) {
                   <h1 className="mx-auto max-w-4xl font-serif text-5xl leading-[0.96] tracking-[-0.04em] text-balance md:text-6xl">
                     Drop in a PDF and shape the reading surface from the file outward.
                   </h1>
-                  <p className="mx-auto max-w-2xl text-base leading-8 text-muted-foreground">
-                    Local parsing first. Then page structure, paragraph flow, caching, and voice.
+                  <p className="mx-auto max-w-xl text-base leading-8 text-muted-foreground">
+                    Keep the intake simple. Then tune readability, follow-along, caching, and voice
+                    as the app grows.
                   </p>
                 </div>
               </div>
@@ -101,18 +149,18 @@ export function App({ initialDocument }: AppProps) {
                 {[
                   {
                     icon: LibraryBig,
-                    title: "Parse once, reuse often",
-                    body: "The next pass should persist a versioned reading model so reopening a PDF does not require a full remap.",
+                    title: "Reading-first",
+                    body: "The document view should feel like a workspace, not a landing page dressed up as one.",
                   },
                   {
                     icon: AudioLines,
-                    title: "Voice stays modular",
-                    body: "The browser speech layer remains a placeholder dock until your local voice runtime is wired in.",
+                    title: "Follow-along next",
+                    body: "Reading progress should become a stable cursor shared by voice, map, and focused text.",
                   },
                   {
                     icon: Sparkles,
-                    title: "Recent readings later",
-                    body: "This empty-state space can become the document finder once local caching and indexing are in place.",
+                    title: "Settings built in",
+                    body: "Font, size, line height, and themes should be first-class controls, not afterthoughts.",
                   },
                 ].map((item) => (
                   <Card key={item.title} className="bg-white/4">
@@ -129,48 +177,55 @@ export function App({ initialDocument }: AppProps) {
         ) : (
           <>
             {error ? (
-              <Card className="mb-6 border-rose-300/30 bg-rose-300/10">
+              <Card className="mb-5 border-rose-300/30 bg-rose-300/10">
                 <CardContent className="p-5 text-sm leading-7 text-rose-100">{error}</CardContent>
               </Card>
             ) : null}
 
-            <header className="mb-6 rounded-[28px] border border-border/50 bg-white/5 px-5 py-4 backdrop-blur-xl md:px-6">
-              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div className="space-y-2">
+            <header className="mb-5 rounded-[24px] border border-border/50 bg-black/20 px-4 py-3 backdrop-blur-xl md:px-5">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-3">
                     <Badge variant="accent">Linea</Badge>
                     <Badge>{document.fileName}</Badge>
                   </div>
-                  <div className="text-sm leading-7 text-muted-foreground">
-                    Active page {selectedPage} of {document.pageCount}. Extracted text first, page
-                    context always visible.
+                  <div className="text-sm text-muted-foreground">
+                    Page {selectedPage} of {document.pageCount}. The reading pane is primary; the
+                    rail stays utility-only.
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3 text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                  <span className="rounded-full border border-border/60 px-3 py-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-border/60 px-3 py-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">
                     Local session
                   </span>
-                  <span className="rounded-full border border-border/60 px-3 py-2">
+                  <span className="rounded-full border border-border/60 px-3 py-2 text-xs uppercase tracking-[0.2em] text-muted-foreground">
                     Voice-ready
                   </span>
-                  <span className="rounded-full border border-border/60 px-3 py-2">
-                    PDF.js
-                  </span>
+                  <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                    <Upload className="size-3.5" />
+                    Open another PDF
+                  </Button>
                 </div>
               </div>
             </header>
 
-            <section className="grid gap-6 xl:grid-cols-[minmax(340px,0.37fr)_minmax(0,0.63fr)]">
-              <div className="space-y-6">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/pdf"
+              className="sr-only"
+              onChange={(event) => handleReplacementFile(event.target.files)}
+            />
+
+            <section className="grid gap-5 xl:grid-cols-[300px_minmax(0,1fr)]">
+              <div className="space-y-5">
+                <ReaderSettings settings={settings} onChange={setSettings} />
                 <ReaderMinimap
                   document={document}
                   selectedPage={selectedPage}
                   onSelectPage={setSelectedPage}
                 />
-              </div>
-
-              <div className="space-y-6">
                 <VoiceConsole
                   recognitionSupported={voice.recognitionSupported}
                   isListening={voice.isListening}
@@ -189,20 +244,18 @@ export function App({ initialDocument }: AppProps) {
                   onStartListening={voice.startListening}
                   onStopListening={voice.stopListening}
                 />
+              </div>
 
+              <div className="min-w-0">
                 <ReaderFocus
                   document={document}
                   selectedPage={selectedPage}
                   activeParagraphId={voice.activeParagraphId}
+                  settings={settings}
                   onSelectPage={setSelectedPage}
                 />
               </div>
             </section>
-
-            <div className="mt-6 text-center text-xs uppercase tracking-[0.24em] text-muted-foreground">
-              <BookMarked className="mr-2 inline size-4 text-primary" />
-              Active page {selectedPage} of {document.pageCount}
-            </div>
           </>
         )}
       </main>

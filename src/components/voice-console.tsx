@@ -42,8 +42,8 @@ export function VoiceConsole({
   onStopListening,
 }: VoiceConsoleProps) {
   return (
-    <Card className="overflow-hidden">
-      <CardHeader className="gap-4 border-b border-border/40">
+    <Card className="overflow-hidden bg-white/4">
+      <CardHeader className="gap-3 border-b border-border/40 pb-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Badge>Voice loop</Badge>
           <div className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-muted-foreground">
@@ -51,22 +51,22 @@ export function VoiceConsole({
             Browser scaffold
           </div>
         </div>
-        <CardTitle className="text-xl">Speech controls stay swappable.</CardTitle>
+        <CardTitle className="text-lg">Speech</CardTitle>
       </CardHeader>
 
-      <CardContent className="space-y-5 pt-6">
-        <div className="grid gap-3 sm:grid-cols-2">
+      <CardContent className="space-y-4 pt-5">
+        <div className="grid gap-2 sm:grid-cols-2">
           <Button onClick={onSpeak} className="justify-start">
             <Play className="size-4" />
-            Read current page
+            Read page
           </Button>
           <Button variant="secondary" onClick={onPauseOrResume} className="justify-start">
             <Pause className="size-4" />
-            {isPaused ? "Resume speech" : isSpeaking ? "Pause speech" : "Play from here"}
+            {isPaused ? "Resume" : isSpeaking ? "Pause" : "Play here"}
           </Button>
           <Button variant="outline" onClick={onStop} className="justify-start">
             <Square className="size-4" />
-            Stop speech
+            Stop
           </Button>
           <Button
             variant={isListening ? "default" : "outline"}
@@ -77,13 +77,13 @@ export function VoiceConsole({
             {isListening ? <MicOff className="size-4" /> : <Mic className="size-4" />}
             {recognitionSupported
               ? isListening
-                ? "Stop voice commands"
-                : "Start voice commands"
-              : "Voice input unavailable"}
+                ? "Stop commands"
+                : "Start commands"
+              : "Input unavailable"}
           </Button>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_200px]">
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_160px]">
           <label className="space-y-2 text-sm">
             <span className="block uppercase tracking-[0.2em] text-muted-foreground">
               Voice
@@ -112,18 +112,18 @@ export function VoiceConsole({
               step="0.1"
               value={rate}
               onChange={(event) => setRate(Number(event.target.value))}
-              className="h-11 w-full accent-[var(--primary)]"
+              className="h-10 w-full accent-[var(--primary)]"
             />
           </label>
         </div>
 
-        <div className="rounded-[20px] border border-border/50 bg-black/20 p-4">
+        <div className="rounded-[18px] border border-border/50 bg-black/20 p-4">
           <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
             Status
           </div>
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
             {lastCommand ||
-              "Wire this panel into your local voice runtime later. For now it proves the UI shape, command flow, and TTS handoff."}
+              "Wire this panel into your local voice runtime later. For now it proves the control surface and progress handoff."}
           </p>
           {activeParagraphId ? (
             <p className="mt-3 text-[11px] uppercase tracking-[0.22em] text-primary">

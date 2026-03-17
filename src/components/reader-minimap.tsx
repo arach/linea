@@ -41,12 +41,12 @@ export function ReaderMinimap({
   }
 
   return (
-    <Card className="flex min-h-[560px] flex-col overflow-hidden">
-      <CardHeader className="border-b border-border/40 pb-5">
+    <Card className="flex min-h-[340px] flex-col overflow-hidden bg-white/4">
+      <CardHeader className="border-b border-border/40 pb-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="space-y-2">
             <Badge>Document map</Badge>
-            <CardTitle className="text-xl">{document.fileName}</CardTitle>
+            <CardTitle className="text-lg">{document.fileName}</CardTitle>
           </div>
           <div className="grid gap-1 text-right text-xs uppercase tracking-[0.2em] text-muted-foreground">
             <span>{document.pageCount} pages</span>
@@ -57,9 +57,8 @@ export function ReaderMinimap({
       </CardHeader>
 
       <ScrollArea className="flex-1">
-        <div className="space-y-3 p-4">
+        <div className="space-y-2 p-3">
           {document.pages.map((page) => {
-            const intensity = Math.max(12, Math.min(100, page.wordCount / 4));
             const isActive = page.pageNumber === selectedPage;
 
             return (
@@ -68,54 +67,42 @@ export function ReaderMinimap({
                 type="button"
                 onClick={() => onSelectPage(page.pageNumber)}
                 className={cn(
-                  "group w-full rounded-[22px] border p-4 text-left transition-all duration-200",
+                  "group grid w-full grid-cols-[52px_minmax(0,1fr)] gap-3 rounded-[18px] border p-3 text-left transition-all duration-200",
                   isActive
-                    ? "border-primary/55 bg-primary/10 shadow-[0_22px_40px_-26px_rgba(247,203,110,0.75)]"
-                    : "border-border/60 bg-white/4 hover:border-primary/30 hover:bg-white/8",
+                    ? "border-primary/45 bg-primary/10"
+                    : "border-border/60 bg-white/4 hover:border-primary/25 hover:bg-white/8",
                 )}
               >
-                <div className="mb-4 flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-                      Page {page.pageNumber}
-                    </div>
-                    <div className="mt-2 line-clamp-2 font-medium leading-5">{page.title}</div>
+                <div className="rounded-[14px] border border-white/8 bg-black/20 px-2 py-3 text-center">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                    Pg
                   </div>
-                  <ChevronRight
-                    className={cn(
-                      "mt-0.5 size-4 shrink-0 transition-transform",
-                      isActive ? "translate-x-1 text-primary" : "text-muted-foreground",
-                    )}
-                  />
+                  <div className="mt-1 text-lg font-semibold">{page.pageNumber}</div>
                 </div>
 
-                <div className="mb-4 overflow-hidden rounded-[18px] border border-white/8 bg-black/20 p-3">
-                  <div className="flex gap-2">
-                    <div className="w-1 rounded-full bg-primary/60" />
-                    <div className="min-w-0 flex-1 space-y-2">
-                      {[0, 1, 2, 3].map((line) => (
-                        <div
-                          key={line}
-                          className="h-1.5 rounded-full bg-white/10"
-                          style={{
-                            width: `${Math.max(24, Math.min(96, intensity - line * 9))}%`,
-                          }}
-                        />
-                      ))}
+                <div className="min-w-0">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="line-clamp-2 font-medium leading-5">{page.title}</div>
+                      <p className="mt-1 line-clamp-2 text-sm leading-5 text-muted-foreground">
+                        {page.preview}
+                      </p>
                     </div>
+                    <ChevronRight
+                      className={cn(
+                        "mt-0.5 size-4 shrink-0 transition-transform",
+                        isActive ? "translate-x-1 text-primary" : "text-muted-foreground",
+                      )}
+                    />
                   </div>
-                </div>
 
-                <p className="line-clamp-3 text-sm leading-6 text-muted-foreground">
-                  {page.preview}
-                </p>
-
-                <div className="mt-4 flex items-center justify-between text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                  <span className="inline-flex items-center gap-2">
-                    <BookOpenText className="size-3.5" />
-                    {page.wordCount ? `${formatCount(page.wordCount)} words` : "No text"}
-                  </span>
-                  <span>{page.hasText ? "Readable" : "OCR next"}</span>
+                  <div className="mt-3 flex items-center justify-between text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                    <span className="inline-flex items-center gap-2">
+                      <BookOpenText className="size-3.5" />
+                      {page.wordCount ? `${formatCount(page.wordCount)} words` : "No text"}
+                    </span>
+                    <span>{page.hasText ? "Readable" : "OCR next"}</span>
+                  </div>
                 </div>
               </button>
             );
