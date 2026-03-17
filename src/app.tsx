@@ -72,7 +72,7 @@ export function App({ initialDocument }: AppProps) {
             <div className="mx-auto grid w-full max-w-[1080px] gap-6">
               <div className="space-y-4 text-center">
                 <div className="flex flex-wrap items-center justify-center gap-3">
-                  <Badge variant="accent">Reader / app shell</Badge>
+                  <Badge variant="accent">Linea / app shell</Badge>
                   <Badge>Local PDF intake</Badge>
                 </div>
                 <div className="space-y-3">
@@ -138,7 +138,7 @@ export function App({ initialDocument }: AppProps) {
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-3">
-                    <Badge variant="accent">Reader</Badge>
+                    <Badge variant="accent">Linea</Badge>
                     <Badge>{document.fileName}</Badge>
                   </div>
                   <div className="text-sm leading-7 text-muted-foreground">

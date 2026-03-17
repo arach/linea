@@ -44,5 +44,5 @@ app.use(async (req, res, next) => {
 });
 
 app.listen(port, () => {
-  console.log(`Reader server running at http://localhost:${port}`);
+  console.log(`Linea server running at http://localhost:${port}`);
 });

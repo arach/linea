@@ -21,7 +21,7 @@ export function ReaderMinimap({
     return (
       <Card className="min-h-[420px]">
         <CardHeader className="border-b border-border/40">
-          <Badge>Reader map</Badge>
+          <Badge>Linea map</Badge>
           <CardTitle className="text-xl">Minimap arrives with the PDF.</CardTitle>
         </CardHeader>
         <CardContent className="flex min-h-[300px] items-center justify-center">

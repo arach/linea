@@ -91,7 +91,7 @@ export function PdfDropzone({ onFile, loading, progress }: PdfDropzoneProps) {
               {loading
                 ? progress?.totalPages
                   ? `Extracting readable text from ${progress.loadedPages} of ${progress.totalPages} pages.`
-                  : "Initializing PDF.js and preparing the reader shell."
+                  : "Initializing PDF.js and preparing the Linea shell."
                 : "This first pass focuses on one PDF at a time. Replace it any time to re-shape the layout and voice loop."}
             </p>
           </div>
