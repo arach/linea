@@ -1,0 +1,137 @@
+import { Mic, MicOff, Pause, Play, Square, Waves } from "lucide-react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+type VoiceConsoleProps = {
+  recognitionSupported: boolean;
+  isListening: boolean;
+  isSpeaking: boolean;
+  isPaused: boolean;
+  rate: number;
+  setRate: (rate: number) => void;
+  selectedVoice: string;
+  setSelectedVoice: (name: string) => void;
+  voices: SpeechSynthesisVoice[];
+  lastCommand: string;
+  activeParagraphId: string | null;
+  onSpeak: () => void;
+  onPauseOrResume: () => void;
+  onStop: () => void;
+  onStartListening: () => void;
+  onStopListening: () => void;
+};
+
+export function VoiceConsole({
+  recognitionSupported,
+  isListening,
+  isSpeaking,
+  isPaused,
+  rate,
+  setRate,
+  selectedVoice,
+  setSelectedVoice,
+  voices,
+  lastCommand,
+  activeParagraphId,
+  onSpeak,
+  onPauseOrResume,
+  onStop,
+  onStartListening,
+  onStopListening,
+}: VoiceConsoleProps) {
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader className="gap-4 border-b border-border/40">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Badge>Voice loop</Badge>
+          <div className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-muted-foreground">
+            <Waves className="size-4 text-primary" />
+            Browser scaffold
+          </div>
+        </div>
+        <CardTitle className="text-xl">Speech controls stay swappable.</CardTitle>
+      </CardHeader>
+
+      <CardContent className="space-y-5 pt-6">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Button onClick={onSpeak} className="justify-start">
+            <Play className="size-4" />
+            Read current page
+          </Button>
+          <Button variant="secondary" onClick={onPauseOrResume} className="justify-start">
+            <Pause className="size-4" />
+            {isPaused ? "Resume speech" : isSpeaking ? "Pause speech" : "Play from here"}
+          </Button>
+          <Button variant="outline" onClick={onStop} className="justify-start">
+            <Square className="size-4" />
+            Stop speech
+          </Button>
+          <Button
+            variant={isListening ? "default" : "outline"}
+            onClick={isListening ? onStopListening : onStartListening}
+            className="justify-start"
+            disabled={!recognitionSupported}
+          >
+            {isListening ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+            {recognitionSupported
+              ? isListening
+                ? "Stop voice commands"
+                : "Start voice commands"
+              : "Voice input unavailable"}
+          </Button>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_200px]">
+          <label className="space-y-2 text-sm">
+            <span className="block uppercase tracking-[0.2em] text-muted-foreground">
+              Voice
+            </span>
+            <select
+              value={selectedVoice}
+              onChange={(event) => setSelectedVoice(event.target.value)}
+              className="h-11 w-full rounded-2xl border border-border/70 bg-white/6 px-4 outline-none transition focus:border-primary/50"
+            >
+              {voices.map((voice) => (
+                <option key={voice.name} value={voice.name}>
+                  {voice.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="space-y-2 text-sm">
+            <span className="block uppercase tracking-[0.2em] text-muted-foreground">
+              Rate {rate.toFixed(1)}x
+            </span>
+            <input
+              type="range"
+              min="0.7"
+              max="1.4"
+              step="0.1"
+              value={rate}
+              onChange={(event) => setRate(Number(event.target.value))}
+              className="h-11 w-full accent-[var(--primary)]"
+            />
+          </label>
+        </div>
+
+        <div className="rounded-[20px] border border-border/50 bg-black/20 p-4">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+            Status
+          </div>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">
+            {lastCommand ||
+              "Wire this panel into your local voice runtime later. For now it proves the UI shape, command flow, and TTS handoff."}
+          </p>
+          {activeParagraphId ? (
+            <p className="mt-3 text-[11px] uppercase tracking-[0.22em] text-primary">
+              Tracking {activeParagraphId.replaceAll("-", " ")}
+            </p>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
