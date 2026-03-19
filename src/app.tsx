@@ -9,8 +9,6 @@ import {
   LoaderCircle,
   Lock,
   Menu,
-  Mic,
-  MicOff,
   Moon,
   MousePointer2,
   Sun,
@@ -19,8 +17,10 @@ import {
   Quote,
   Sparkles,
   Square,
+  ALargeSmall,
+  AudioLines,
+  Palette,
   Upload,
-  Volume2,
   X,
   Zap,
 } from "lucide-react";
@@ -326,13 +326,11 @@ function PdfSidebar({
   return (
     <nav className="linea-pdf-sidebar">
       <div className="pdf-sidebar-header">
-        <div>
-          <span className="linea-panel-label">Document Map</span>
-          <div className="pdf-sidebar-title">
-            Page {selectedPage} / {document.pageCount}
-          </div>
-        </div>
-        <span className="pdf-sidebar-caption">Visual page rail</span>
+        <span className="pdf-sidebar-doctitle">{document.fileName}</span>
+      </div>
+      <div className="pdf-sidebar-header">
+        <span className="linea-panel-label">Pages</span>
+        <span className="linea-panel-label">{selectedPage} / {document.pageCount}</span>
       </div>
       <div className="pdf-thumbnail-list" ref={containerRef}>
         {document.pages.map((page) => {
@@ -359,9 +357,9 @@ function PdfSidebar({
               }}
             >
               <div className="pdf-thumbnail-toolbar">
-                <span className="pdf-thumbnail-badge">Page {page.pageNumber}</span>
-                <span className="pdf-thumbnail-action">
-                  {isActive ? "Open page" : "Preview"}
+                <span className="pdf-thumbnail-badge">{page.pageNumber}</span>
+                <span className="pdf-thumbnail-badge">
+                  {page.wordCount ? `${formatCount(page.wordCount)}w` : "No text"}
                 </span>
               </div>
 
@@ -371,10 +369,6 @@ function PdfSidebar({
 
               <div className="pdf-thumbnail-meta">
                 <div className="pdf-thumbnail-title">{page.title}</div>
-                <div className="pdf-thumbnail-stats">
-                  <span>{page.wordCount ? `${formatCount(page.wordCount)} words` : "No text layer"}</span>
-                  <span>{page.hasText ? "Extracted" : "Image page"}</span>
-                </div>
               </div>
             </button>
           );
@@ -382,32 +376,6 @@ function PdfSidebar({
       </div>
     </nav>
   );
-}
-
-/* ─── key terms extractor ─── */
-
-function extractKeyTerms(text: string): string[] {
-  const words = text.split(/\s+/);
-  const counts = new Map<string, number>();
-  const stopWords = new Set([
-    "the", "and", "that", "this", "with", "from", "have", "been", "were",
-    "would", "could", "should", "which", "their", "there", "about", "being",
-    "through", "between", "before", "after", "without", "already", "because",
-    "another", "whether", "something", "themselves", "interface", "reading",
-  ]);
-
-  for (const word of words) {
-    const clean = word.replace(/[^a-zA-Z'-]/g, "").toLowerCase();
-    if (clean.length >= 7 && !stopWords.has(clean)) {
-      counts.set(clean, (counts.get(clean) ?? 0) + 1);
-    }
-  }
-
-  return [...counts.entries()]
-    .filter(([, count]) => count >= 2)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10)
-    .map(([word]) => word);
 }
 
 function describeVoice(voice: { locale?: string; tags?: string[]; previewText?: string }) {
@@ -508,41 +476,70 @@ function renderParagraphText(paragraph: ReaderParagraph, absoluteCharIndex: numb
 
 /* ─── context panel ─── */
 
+function snippetText(text: string, maxLen = 80) {
+  if (text.length <= maxLen) return text;
+  const half = Math.floor((maxLen - 3) / 2);
+  return `${text.slice(0, half).trimEnd()}...${text.slice(-half).trimStart()}`;
+}
+
 function ContextPanel({
   document,
   page,
-  settings,
-  onSettingsChange,
   voice,
-  onSpeakPage,
   selectedParagraph,
-  onSpeakParagraph,
+  selectedParagraphId,
+  selectedPage,
+  onSelectParagraph,
 }: {
   document: ReaderDocument;
   page: ReaderPage;
-  settings: ReaderSettings;
-  onSettingsChange: (s: ReaderSettings) => void;
   voice: ReturnType<typeof useVoiceConsole>;
-  onSpeakPage: () => void;
   selectedParagraph: ReaderParagraph | null;
-  onSpeakParagraph: () => void;
+  selectedParagraphId: string | null;
+  selectedPage: number;
+  onSelectParagraph: (id: string | null) => void;
 }) {
-  const keyTerms = useMemo(() => extractKeyTerms(page.text), [page.text]);
-  const update = <K extends keyof ReaderSettings>(key: K, value: ReaderSettings[K]) =>
-    onSettingsChange({ ...settings, [key]: value });
+  const activeParagraph = useMemo(
+    () => voice.activeParagraphId
+      ? page.paragraphs.find((p) => p.id === voice.activeParagraphId) ?? null
+      : null,
+    [page.paragraphs, voice.activeParagraphId],
+  );
+
+  const isPlaying = voice.isSpeaking || voice.isPaused || voice.activity.phase === "requesting";
+
+  const visibleParagraphs = useMemo(
+    () => page.paragraphs.filter((p) => p.text.trim() !== page.title.trim()),
+    [page.paragraphs, page.title],
+  );
+
+  const wordsBeforePage = useMemo(() => {
+    let total = 0;
+    for (const p of document.pages) {
+      if (p.pageNumber >= selectedPage) break;
+      total += p.wordCount;
+    }
+    return total;
+  }, [document.pages, selectedPage]);
+
+  const readProgress = document.totalWords > 0
+    ? Math.round(((wordsBeforePage + page.wordCount) / document.totalWords) * 100)
+    : 0;
 
   return (
     <aside className="linea-context-panel">
-      {/* Page info */}
+      {/* Page header + progress */}
       <div className="linea-panel-section">
-        <span className="linea-panel-label">Page {page.pageNumber}</span>
-        <span className="linea-panel-value">{page.title}</span>
-      </div>
-
-      <div className="linea-panel-section">
+        <div className="context-page-header">
+          <span className="linea-panel-label">Page {page.pageNumber} / {document.pageCount}</span>
+          <span className="linea-panel-label">{readProgress}%</span>
+        </div>
+        <div className="linea-progress" style={{ height: 4 }}>
+          <div className="linea-progress-fill" style={{ width: `${readProgress}%` }} />
+        </div>
         <div className="context-stats">
           <div>
-            <span className="linea-panel-label">Words</span>
+            <span className="linea-panel-label">Page</span>
             <span className="linea-panel-value">{formatCount(page.wordCount)}</span>
           </div>
           <div>
@@ -556,309 +553,84 @@ function ContextPanel({
         </div>
       </div>
 
-      {/* Key terms */}
-      {keyTerms.length > 0 && (
+      {/* Active content (playing) */}
+      {isPlaying && (
         <div className="linea-panel-section">
-          <span className="linea-panel-label">Key Terms</span>
-          <div className="context-terms">
-            {keyTerms.map((term) => (
-              <span key={term} className="context-term">{term}</span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Settings */}
-      <div className="linea-panel-section">
-        <span className="linea-panel-label">Theme</span>
-        <div className="linea-setting-row" style={{ marginTop: 6 }}>
-          {(Object.entries(readerThemes) as [ReaderTheme, (typeof readerThemes)[ReaderTheme]][]).map(
-            ([key, meta]) => (
-              <button
-                key={key}
-                type="button"
-                className={`linea-chip${settings.theme === key ? " active" : ""}`}
-                onClick={() => update("theme", key)}
-              >
-                {meta.label}
-              </button>
-            ),
-          )}
-        </div>
-      </div>
-
-      <div className="linea-panel-section">
-        <span className="linea-panel-label">Font</span>
-        <div className="linea-setting-row" style={{ marginTop: 6 }}>
-          {(Object.entries(readerFonts) as [ReaderFont, (typeof readerFonts)[ReaderFont]][]).map(
-            ([key, meta]) => (
-              <button
-                key={key}
-                type="button"
-                className={`linea-chip${settings.font === key ? " active" : ""}`}
-                onClick={() => update("font", key)}
-              >
-                {meta.label}
-              </button>
-            ),
-          )}
-        </div>
-      </div>
-
-      <div className="linea-panel-section">
-        <div style={{ display: "flex", justifyContent: "space-between" }}>
-          <span className="linea-panel-label">Size</span>
-          <span className="linea-panel-label">{settings.fontSize}px</span>
-        </div>
-        <input
-          type="range"
-          min={16}
-          max={30}
-          step={1}
-          value={settings.fontSize}
-          onChange={(e) => update("fontSize", Number(e.target.value))}
-          className="linea-slider"
-        />
-        <div style={{ display: "flex", justifyContent: "space-between" }}>
-          <span className="linea-panel-label">Line height</span>
-          <span className="linea-panel-label">{settings.lineHeight.toFixed(2)}</span>
-        </div>
-        <input
-          type="range"
-          min={1.4}
-          max={2}
-          step={0.02}
-          value={settings.lineHeight}
-          onChange={(e) => update("lineHeight", Number(e.target.value))}
-          className="linea-slider"
-        />
-      </div>
-
-      {/* Voice */}
-      <div className="linea-panel-section">
-        <span className="linea-panel-label">Voice</span>
-        {!voice.providers.some((provider) => provider.available) && (
-          <div className="linea-status">
-            Save an API key below before the read controls can synthesize audio.
-          </div>
-        )}
-        <div className="linea-voice-grid">
-          <button
-            type="button"
-            className="linea-btn linea-btn-icon"
-            onClick={onSpeakPage}
-            style={{ flex: 1 }}
-          >
-            <Play size={14} />
-            Read
-          </button>
-          {selectedParagraph && (
-            <button
-              type="button"
-              className="linea-btn-secondary linea-btn-icon"
-              onClick={onSpeakParagraph}
-              style={{ flex: 1 }}
-            >
-              <BookOpen size={14} />
-              Paragraph
-            </button>
-          )}
-          <button
-            type="button"
-            className="linea-btn-secondary linea-btn-icon"
-            onClick={voice.pauseOrResume}
-            style={{ flex: 1 }}
-          >
-            <Pause size={14} />
-            {voice.isPaused ? "Resume" : voice.isSpeaking ? "Pause" : "Pause"}
-          </button>
-          <button
-            type="button"
-            className="linea-btn-secondary linea-btn-icon"
-            onClick={voice.stopSpeaking}
-          >
-            <Square size={14} />
-          </button>
-          {voice.recognitionSupported && (
-            <button
-              type="button"
-              className="linea-btn-secondary linea-btn-icon"
-              onClick={voice.isListening ? voice.stopListening : voice.startListening}
-            >
-              {voice.isListening ? <MicOff size={14} /> : <Mic size={14} />}
-            </button>
+          <span className="linea-panel-label linea-label-active">Active</span>
+          {activeParagraph && (
+            <>
+              <div className="linea-context-snippet">
+                {snippetText(activeParagraph.text)}
+              </div>
+              <span className="linea-panel-label">
+                {activeParagraph.text.split(/\s+/).filter(Boolean).length} words
+              </span>
+            </>
           )}
           {voice.activity.phase === "requesting" && (
-            <button
-              type="button"
-              className="linea-btn-secondary linea-btn-icon"
-              onClick={voice.cancelRequest}
-            >
-              <X size={14} />
-              Cancel
-            </button>
-          )}
-          {voice.activity.audioUrl && (
-            <a
-              href={voice.activity.audioUrl}
-              download
-              className="linea-btn-secondary linea-btn-icon"
-            >
-              <Upload size={14} />
-              Save
-            </a>
-          )}
-        </div>
-
-        {selectedParagraph && (
-          <div className="linea-status">
-            <div className="linea-status-header">
-              <span>Paragraph selected</span>
-            </div>
-            <div>{selectedParagraph.id.replace("page-", "p")}</div>
-            <div className="linea-status-meta">
-              {selectedParagraph.text.slice(0, 120)}{selectedParagraph.text.length > 120 ? "..." : ""}
-            </div>
-          </div>
-        )}
-
-        {voice.providers.length > 0 ? (
-          <>
-            <div className="voice-provider-tabs">
-              {voice.providers.map((provider) => (
-                <button
-                  key={provider.id}
-                  type="button"
-                  className={`voice-provider-tab${voice.selectedProvider === provider.id ? " active" : ""}${provider.available ? "" : " unavailable"}`}
-                  onClick={() => voice.setSelectedProvider(provider.id)}
-                  disabled={!provider.available && voice.providers.some((entry) => entry.available)}
-                >
-                  <span>{provider.label}</span>
-                  <span className="voice-provider-count">{voice.selectedProvider === provider.id ? voice.voices.length : "..."}</span>
-                </button>
-              ))}
-            </div>
-
-            {voice.loadingVoices ? (
-              <div className="linea-status">Loading voices…</div>
-            ) : voice.voices.length > 0 ? (
-              <div className="voice-card-grid">
-                {voice.voices.map((entry) => {
-                  const isSelected = entry.id === voice.selectedVoice;
-
-                  return (
-                    <button
-                      key={`${entry.provider}:${entry.id}`}
-                      type="button"
-                      className={`voice-card${isSelected ? " active" : ""}`}
-                      onClick={() => voice.setSelectedVoice(entry.id)}
-                    >
-                      <span className="voice-card-name">{entry.label}</span>
-                      <span className="voice-card-meta">{describeVoice(entry)}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="linea-status">No voices available for this provider yet.</div>
-            )}
-          </>
-        ) : (
-          <div className="linea-status">No voice providers are available yet.</div>
-        )}
-
-        <div>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <span className="linea-panel-label">Rate</span>
-            <span className="linea-panel-label">{voice.rate.toFixed(1)}x</span>
-          </div>
-          <input
-            type="range"
-            min={0.7}
-            max={1.4}
-            step={0.1}
-            value={voice.rate}
-            onChange={(e) => voice.setRate(Number(e.target.value))}
-            className="linea-slider"
-          />
-        </div>
-
-        <div className={`linea-status linea-status-${voice.activity.phase}`}>
-          <div className="linea-status-header">
-            <span>{voice.activity.label}</span>
-            {voice.activity.phase === "requesting" ? (
-              <LoaderCircle size={14} className="animate-spin" />
-            ) : null}
-          </div>
-          <div>{voice.activity.detail}</div>
-          {voice.activity.scopeLabel && (
-            <div className="linea-status-meta">
-              Scope {voice.activity.scopeLabel}
-              {voice.activity.wordCount !== null ? ` · ${voice.activity.wordCount.toLocaleString()} words` : ""}
+            <div className="linea-player-meta">
+              <LoaderCircle size={12} className="animate-spin" />
+              <span>Generating...</span>
             </div>
           )}
-          {(voice.activity.phase === "ready" ||
-            voice.activity.phase === "playing" ||
-            voice.activity.phase === "paused" ||
-            voice.activity.phase === "ended") && (
+          {(voice.playbackWindow.durationMs > 0) && (
             <>
-              <div className="linea-status-meta">
-                One generated clip. No additional synthesis happens during playback.
-              </div>
               <div className="linea-playback-meter">
                 <div
                   className="linea-playback-meter-fill"
                   style={{ width: `${voice.playbackWindow.progress * 100}%` }}
                 />
               </div>
-              <div className="linea-status-meta">
-                {formatDurationMs(voice.playbackWindow.elapsedMs)} / {formatDurationMs(voice.playbackWindow.durationMs)}
-                {voice.playbackWindow.totalWords > 0
-                  ? ` · word ${Math.max(1, voice.playbackWindow.currentWord)} of ${voice.playbackWindow.totalWords}`
-                  : ""}
+              <div className="linea-player-meta">
+                <span>{formatDurationMs(voice.playbackWindow.elapsedMs)} / {formatDurationMs(voice.playbackWindow.durationMs)}</span>
+                {voice.playbackWindow.totalWords > 0 && (
+                  <span>word {Math.max(1, voice.playbackWindow.currentWord)} / {voice.playbackWindow.totalWords}</span>
+                )}
               </div>
             </>
           )}
-          {(voice.activity.provider || voice.activity.voice) && (
-            <div className="linea-status-meta">
-              {voice.activity.provider ? `Provider ${voice.activity.provider}` : ""}
-              {voice.activity.provider && voice.activity.voice ? " · " : ""}
-              {voice.activity.voice ? `Voice ${voice.activity.voice}` : ""}
-            </div>
-          )}
-          {voice.activity.cached !== null && (
-            <div className="linea-status-meta">
-              {voice.activity.cached ? "Cache hit" : "Fresh generation"}
-              {voice.activity.cacheKey ? ` · ${voice.activity.cacheKey.slice(0, 10)}` : ""}
-            </div>
-          )}
-          {voice.activeParagraphId && (
-            <div className="linea-status-accent">
-              Tracking {voice.activeParagraphId.replaceAll("-", " ")}
-            </div>
-          )}
-          {voice.lastCommand && (
-            <div className="linea-status-meta">
-              {voice.lastCommand}
-            </div>
-          )}
-          {voice.voiceError && voice.voiceError !== voice.activity.detail && (
-            <div style={{ marginTop: 4 }}>
-              {voice.voiceError}
-            </div>
-          )}
         </div>
+      )}
 
-        {voice.activity.phase === "requesting" && (
-          <div className="linea-status">
-            If this takes longer than expected, check the terminal for `[linea:vox] synth-cache-miss` or provider errors.
+      {/* Selected content (user-clicked paragraph) */}
+      {selectedParagraph && !isPlaying && (
+        <div className="linea-panel-section">
+          <span className="linea-panel-label">Selected</span>
+          <div className="linea-context-snippet">
+            {snippetText(selectedParagraph.text)}
           </div>
-        )}
-      </div>
+          <span className="linea-panel-label">
+            {selectedParagraph.text.split(/\s+/).filter(Boolean).length} words
+          </span>
+        </div>
+      )}
 
-      <div className="linea-panel-section">
-        <span className="linea-panel-label">Provider Access</span>
-        <ProviderCredentials onCredentialsChanged={() => void voice.refreshProviders()} />
+      {/* Paragraph outline */}
+      <div className="linea-panel-section context-outline-section">
+        <span className="linea-panel-label">Outline · {visibleParagraphs.length} paragraphs</span>
+        <div className="context-outline">
+          {visibleParagraphs.map((p, i) => {
+            const wc = p.text.split(/\s+/).filter(Boolean).length;
+            const isActive = voice.activeParagraphId === p.id;
+            const isSelected = selectedParagraphId === p.id;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                className={`context-outline-item${isActive ? " active" : ""}${isSelected ? " selected" : ""}`}
+                onClick={() => {
+                  onSelectParagraph(selectedParagraphId === p.id ? null : p.id);
+                  const el = window.document.querySelector(`[data-paragraph-id="${p.id}"]`);
+                  el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                }}
+              >
+                <span className="context-outline-num">{i + 1}</span>
+                <span className="context-outline-text">{snippetText(p.text, 50)}</span>
+                <span className="context-outline-wc">{wc}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </aside>
   );
@@ -866,16 +638,31 @@ function ContextPanel({
 
 /* ─── header ─── */
 
-function ThemeToggle({ theme, toggle }: { theme: string; toggle: () => void }) {
+function HeaderPopover({
+  open,
+  onClose,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [open, onClose]);
+
+  if (!open) return null;
   return (
-    <button
-      type="button"
-      className="linea-btn-ghost linea-btn-icon"
-      onClick={toggle}
-      aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-    >
-      {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
-    </button>
+    <div ref={ref} className="linea-header-popover">
+      {children}
+    </div>
   );
 }
 
@@ -884,29 +671,202 @@ function Header({
   onUploadClick,
   theme,
   toggleTheme,
+  settings,
+  onSettingsChange,
+  voice,
 }: {
   document: ReaderDocument | null;
   onUploadClick: () => void;
   theme: string;
   toggleTheme: () => void;
+  settings: ReaderSettings;
+  onSettingsChange: (s: ReaderSettings) => void;
+  voice: ReturnType<typeof useVoiceConsole>;
 }) {
+  const [openPopover, setOpenPopover] = useState<"typography" | "theme" | "voice" | null>(null);
+  const togglePopover = (key: "typography" | "theme" | "voice") =>
+    setOpenPopover((prev) => (prev === key ? null : key));
+  const update = <K extends keyof ReaderSettings>(key: K, value: ReaderSettings[K]) =>
+    onSettingsChange({ ...settings, [key]: value });
+
   return (
     <header className="linea-header">
       <div className="wrap-wide">
         <div className="linea-header-brand">
           <span className="linea-logo">Linea</span>
-          {document && (
-            <div className="linea-header-document">
-              <strong>{document.fileName}</strong>
-              <span>{document.pageCount} pages</span>
-            </div>
-          )}
+          {document && <span className="linea-header-sub">Reader</span>}
         </div>
         <nav className="linea-nav">
+          {document && (
+            <>
+              <div style={{ position: "relative" }}>
+                <button
+                  type="button"
+                  className="linea-btn-ghost linea-btn-icon"
+                  onClick={() => togglePopover("typography")}
+                  aria-label="Typography settings"
+                >
+                  <ALargeSmall size={14} />
+                </button>
+                <HeaderPopover open={openPopover === "typography"} onClose={() => setOpenPopover(null)}>
+                  <span className="linea-panel-label">Font</span>
+                  <div className="linea-setting-row" style={{ marginTop: 6 }}>
+                    {(Object.entries(readerFonts) as [ReaderFont, (typeof readerFonts)[ReaderFont]][]).map(
+                      ([key, meta]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          className={`linea-chip${settings.font === key ? " active" : ""}`}
+                          onClick={() => update("font", key)}
+                        >
+                          {meta.label}
+                        </button>
+                      ),
+                    )}
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12 }}>
+                    <span className="linea-panel-label">Size</span>
+                    <span className="linea-panel-label">{settings.fontSize}px</span>
+                  </div>
+                  <input
+                    type="range" min={16} max={30} step={1}
+                    value={settings.fontSize}
+                    onChange={(e) => update("fontSize", Number(e.target.value))}
+                    className="linea-slider"
+                  />
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span className="linea-panel-label">Line height</span>
+                    <span className="linea-panel-label">{settings.lineHeight.toFixed(2)}</span>
+                  </div>
+                  <input
+                    type="range" min={1.4} max={2} step={0.02}
+                    value={settings.lineHeight}
+                    onChange={(e) => update("lineHeight", Number(e.target.value))}
+                    className="linea-slider"
+                  />
+                </HeaderPopover>
+              </div>
+              <div style={{ position: "relative" }}>
+                <button
+                  type="button"
+                  className="linea-btn-ghost linea-btn-icon"
+                  onClick={() => togglePopover("theme")}
+                  aria-label="Theme settings"
+                >
+                  <Palette size={14} />
+                </button>
+                <HeaderPopover open={openPopover === "theme"} onClose={() => setOpenPopover(null)}>
+                  <span className="linea-panel-label">Reader Theme</span>
+                  <div className="linea-setting-row" style={{ marginTop: 6 }}>
+                    {(Object.entries(readerThemes) as [ReaderTheme, (typeof readerThemes)[ReaderTheme]][]).map(
+                      ([key, meta]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          className={`linea-chip${settings.theme === key ? " active" : ""}`}
+                          onClick={() => update("theme", key)}
+                        >
+                          {meta.label}
+                        </button>
+                      ),
+                    )}
+                  </div>
+                  <div style={{ marginTop: 10 }}>
+                    <span className="linea-panel-label">Mode</span>
+                    <div className="linea-setting-row" style={{ marginTop: 6 }}>
+                      <button
+                        type="button"
+                        className={`linea-chip${theme === "light" ? " active" : ""}`}
+                        onClick={() => { if (theme === "dark") toggleTheme(); }}
+                      >
+                        <Sun size={12} /> Light
+                      </button>
+                      <button
+                        type="button"
+                        className={`linea-chip${theme === "dark" ? " active" : ""}`}
+                        onClick={() => { if (theme === "light") toggleTheme(); }}
+                      >
+                        <Moon size={12} /> Dark
+                      </button>
+                    </div>
+                  </div>
+                </HeaderPopover>
+              </div>
+              <div style={{ position: "relative" }}>
+                <button
+                  type="button"
+                  className="linea-btn-ghost linea-btn-icon"
+                  onClick={() => togglePopover("voice")}
+                  aria-label="Voice settings"
+                >
+                  <AudioLines size={14} />
+                </button>
+                <HeaderPopover open={openPopover === "voice"} onClose={() => setOpenPopover(null)}>
+                  {!voice.providers.some((p) => p.available) && (
+                    <div className="linea-status">
+                      Save an API key below to enable voice synthesis.
+                    </div>
+                  )}
+                  {voice.providers.length > 0 ? (
+                    <>
+                      <div className="voice-provider-tabs">
+                        {voice.providers.map((provider) => (
+                          <button
+                            key={provider.id}
+                            type="button"
+                            className={`voice-provider-tab${voice.selectedProvider === provider.id ? " active" : ""}${provider.available ? "" : " unavailable"}`}
+                            onClick={() => voice.setSelectedProvider(provider.id)}
+                            disabled={!provider.available && voice.providers.some((e) => e.available)}
+                          >
+                            <span>{provider.label}</span>
+                            <span className="voice-provider-count">{voice.selectedProvider === provider.id ? voice.voices.length : "..."}</span>
+                          </button>
+                        ))}
+                      </div>
+                      {voice.loadingVoices ? (
+                        <div className="linea-status">Loading voices...</div>
+                      ) : voice.voices.length > 0 ? (
+                        <div className="voice-card-grid voice-card-grid-compact">
+                          {voice.voices.map((entry) => (
+                            <button
+                              key={`${entry.provider}:${entry.id}`}
+                              type="button"
+                              className={`voice-card${entry.id === voice.selectedVoice ? " active" : ""}`}
+                              onClick={() => voice.setSelectedVoice(entry.id)}
+                            >
+                              <span className="voice-card-name">{entry.label}</span>
+                              <span className="voice-card-meta">{describeVoice(entry)}</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="linea-status">No voices available yet.</div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="linea-status">No voice providers available.</div>
+                  )}
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span className="linea-panel-label">Rate</span>
+                      <span className="linea-panel-label">{voice.rate.toFixed(1)}x</span>
+                    </div>
+                    <input
+                      type="range" min={0.7} max={1.4} step={0.1}
+                      value={voice.rate}
+                      onChange={(e) => voice.setRate(Number(e.target.value))}
+                      className="linea-slider"
+                    />
+                  </div>
+                  <ProviderCredentials onCredentialsChanged={() => void voice.refreshProviders()} />
+                </HeaderPopover>
+              </div>
+            </>
+          )}
           {document ? (
             <button
               type="button"
-              className="linea-btn-ghost linea-btn-icon"
+              className="linea-btn-secondary linea-btn-icon"
               onClick={onUploadClick}
             >
               <Upload size={14} />
@@ -915,10 +875,178 @@ function Header({
           ) : (
             <a href={`${import.meta.env.BASE_URL}playground`}>Sample Document</a>
           )}
-          <ThemeToggle theme={theme} toggle={toggleTheme} />
         </nav>
       </div>
     </header>
+  );
+}
+
+/* ─── command bar ─── */
+
+function CommandBar({
+  document,
+  page,
+  selectedPage,
+  selectedParagraph,
+  isSpeaking,
+  isPaused,
+  activePageNumber,
+  activeParagraphId,
+  currentSessionLabel,
+  hasSelection,
+  downloadUrl,
+  selectionPreview,
+  onPlay,
+  onCancelRequest,
+  onPauseOrResume,
+  onStop,
+  onReadSelection,
+  requestScopeLabel,
+  requestWordCount,
+  isRequesting,
+  clipProgress,
+  clipElapsedMs,
+  clipDurationMs,
+  clipCurrentWord,
+  clipTotalWords,
+}: {
+  document: ReaderDocument;
+  page: ReaderPage;
+  selectedPage: number;
+  selectedParagraph: ReaderParagraph | null;
+  isSpeaking: boolean;
+  isPaused: boolean;
+  activePageNumber: number | null;
+  activeParagraphId: string | null;
+  currentSessionLabel: string;
+  hasSelection: boolean;
+  downloadUrl: string | null;
+  selectionPreview: string;
+  onPlay: () => void;
+  onCancelRequest: () => void;
+  onPauseOrResume: () => void;
+  onStop: () => void;
+  onReadSelection: () => void;
+  requestScopeLabel: string | null;
+  requestWordCount: number | null;
+  isRequesting: boolean;
+  clipProgress: number;
+  clipElapsedMs: number;
+  clipDurationMs: number;
+  clipCurrentWord: number;
+  clipTotalWords: number;
+}) {
+  const wordCount = selectedParagraph
+    ? selectedParagraph.text.split(/\s+/).filter(Boolean).length
+    : page.wordCount;
+
+  const showBottomRow =
+    isSpeaking || isPaused || isRequesting || hasSelection || clipDurationMs > 0;
+
+  const pageProgress = selectedPage / document.pageCount;
+
+  return (
+    <div className="linea-command-bar">
+      <div className="linea-command-top">
+        <span className="linea-command-meta">
+          {document.fileName} · Page {selectedPage}/{document.pageCount} · {formatCount(wordCount)} words
+        </span>
+        <div className="linea-command-actions">
+          <button
+            type="button"
+            className="linea-btn-ghost linea-btn-icon"
+            onClick={isSpeaking || isPaused ? onPauseOrResume : onPlay}
+          >
+            {isPaused || !isSpeaking ? <Play size={14} /> : <Pause size={14} />}
+          </button>
+          {(isSpeaking || isPaused) && (
+            <button
+              type="button"
+              className="linea-btn-ghost linea-btn-icon"
+              onClick={onStop}
+            >
+              <Square size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="linea-progress">
+        <div className="linea-progress-fill" style={{ width: `${pageProgress * 100}%` }} />
+      </div>
+      {showBottomRow && (
+        <div className="linea-command-bottom">
+          <div className="linea-command-status">
+            {(isSpeaking || isPaused || isRequesting) && (
+              <div className="linea-player-meta">
+                {activePageNumber && <span>Page {activePageNumber}</span>}
+                {activeParagraphId && <span>{activeParagraphId.replaceAll("-", " ")}</span>}
+                {isSpeaking && !isPaused && <span className="linea-player-live">Playing</span>}
+                {isPaused && <span className="linea-player-live paused">Paused</span>}
+              </div>
+            )}
+            {currentSessionLabel && (
+              <div className="linea-player-label">{currentSessionLabel}</div>
+            )}
+            {requestScopeLabel && (
+              <div className="linea-player-request">
+                <span>Scope {requestScopeLabel}</span>
+                {requestWordCount !== null && <span>{requestWordCount.toLocaleString()} words</span>}
+                {isRequesting && <span className="linea-player-live">Requesting</span>}
+              </div>
+            )}
+            {(clipDurationMs > 0 || isRequesting) && (
+              <>
+                <div className="linea-player-request">
+                  <span>{isRequesting ? "Generating clip" : "Playing clip"}</span>
+                  {!isRequesting && clipTotalWords > 0 && (
+                    <span>Word {Math.max(1, clipCurrentWord)} / {clipTotalWords}</span>
+                  )}
+                  {!isRequesting && clipDurationMs > 0 && (
+                    <span>{formatDurationMs(clipElapsedMs)} / {formatDurationMs(clipDurationMs)}</span>
+                  )}
+                </div>
+                {!isRequesting && (
+                  <div className="linea-playback-meter">
+                    <div className="linea-playback-meter-fill" style={{ width: `${clipProgress * 100}%` }} />
+                  </div>
+                )}
+              </>
+            )}
+            {hasSelection && (
+              <div className="linea-player-selection">
+                <Quote size={14} />
+                <span style={{
+                  display: "-webkit-box",
+                  WebkitLineClamp: 1,
+                  WebkitBoxOrient: "vertical" as const,
+                  overflow: "hidden",
+                }}>
+                  {selectionPreview}
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="linea-command-controls">
+            {hasSelection && (
+              <button type="button" className="linea-btn-secondary linea-btn-icon" onClick={onReadSelection}>
+                <BookOpen size={14} /> Selection
+              </button>
+            )}
+            {isRequesting && (
+              <button type="button" className="linea-btn-secondary linea-btn-icon" onClick={onCancelRequest}>
+                <X size={14} /> Cancel
+              </button>
+            )}
+            {downloadUrl && (
+              <a href={downloadUrl} download className="linea-btn-secondary linea-btn-icon">
+                <Upload size={14} /> Save audio
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1334,69 +1462,6 @@ function Landing({
   );
 }
 
-/* ─── read CTA bar ─── */
-
-function ReadCTA({
-  page,
-  isSpeaking,
-  isPaused,
-  onPlay,
-  onPauseOrResume,
-  onStop,
-}: {
-  page: ReaderPage;
-  isSpeaking: boolean;
-  isPaused: boolean;
-  onPlay: () => void;
-  onPauseOrResume: () => void;
-  onStop: () => void;
-}) {
-  return (
-    <div className="read-cta">
-      <div className="read-cta-info">
-        <Volume2 size={16} className="read-cta-icon" />
-        <span className="read-cta-label">
-          {isSpeaking
-            ? isPaused
-              ? "Paused"
-              : "Reading aloud..."
-            : "Listen to this page"}
-        </span>
-        <span className="linea-panel-label">
-          {formatCount(page.wordCount)} words
-        </span>
-      </div>
-      <div className="read-cta-controls">
-        {isSpeaking || isPaused ? (
-          <>
-            <button
-              type="button"
-              className="linea-btn linea-btn-icon"
-              onClick={onPauseOrResume}
-            >
-              {isPaused ? <Play size={14} /> : <Pause size={14} />}
-              {isPaused ? "Resume" : "Pause"}
-            </button>
-            <button
-              type="button"
-              className="linea-btn-secondary linea-btn-icon"
-              onClick={onStop}
-            >
-              <Square size={14} />
-              Stop
-            </button>
-          </>
-        ) : (
-          <button type="button" className="linea-btn linea-btn-icon" onClick={onPlay}>
-            <Play size={14} />
-            Read Page
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
 /* ─── reader panel ─── */
 
 function ReaderPanel({
@@ -1426,7 +1491,6 @@ function ReaderPanel({
 }) {
   const articleRef = useRef<HTMLElement | null>(null);
   const font = readerFonts[settings.font];
-  const pageProgress = selectedPage / document.pageCount;
 
   useEffect(() => {
     onSelectText(null);
@@ -1450,23 +1514,6 @@ function ReaderPanel({
 
   return (
     <article className="linea-reader">
-      <div className="linea-reader-head">
-        <span>{document.fileName}</span>
-        <strong>{Math.round(pageProgress * 100)}%</strong>
-      </div>
-
-      <div className="linea-progress">
-        <div className="linea-progress-fill" style={{ width: `${pageProgress * 100}%` }} />
-      </div>
-
-      <h2 className="linea-reader-title">{page.title}</h2>
-      <div className="linea-reader-meta">
-        <span>Page {page.pageNumber} of {document.pageCount}</span>
-        <span>{formatCount(page.wordCount)} words</span>
-        <span>{page.hasText ? "text ready" : "no text layer"}</span>
-        <span>{page.hasText ? "loaded locally" : "awaiting OCR"}</span>
-      </div>
-
       {page.hasText ? (
         <div
           ref={articleRef as React.RefObject<HTMLDivElement>}
@@ -1483,7 +1530,9 @@ function ReaderPanel({
                   : "var(--font-sans)",
           }}
         >
-          {page.paragraphs.map((paragraph) => (
+          {page.paragraphs
+            .filter((p) => p.text.trim() !== page.title.trim())
+            .map((paragraph) => (
             <button
               key={paragraph.id}
               type="button"
@@ -1496,13 +1545,6 @@ function ReaderPanel({
               }}
               className={`linea-paragraph${activeParagraphId === paragraph.id ? " active" : ""}${selectedParagraphId === paragraph.id ? " selected" : ""}`}
             >
-              <span className="linea-paragraph-label">
-                {activeParagraphId === paragraph.id
-                  ? "Playing"
-                  : selectedParagraphId === paragraph.id
-                    ? "Selected"
-                    : "Select paragraph"}
-              </span>
               <span className="linea-paragraph-text">
                 {renderParagraphText(
                   paragraph,
@@ -1543,188 +1585,6 @@ function ReaderPanel({
         </button>
       </div>
     </article>
-  );
-}
-
-/* ─── floating player ─── */
-
-function FloatingPlayer({
-  isSpeaking,
-  isPaused,
-  activePageNumber,
-  activeParagraphId,
-  currentSessionLabel,
-  hasSelection,
-  selectedParagraphLabel,
-  downloadUrl,
-  selectionPreview,
-  onPlay,
-  onPlayParagraph,
-  onCancelRequest,
-  onPauseOrResume,
-  onStop,
-  onReadSelection,
-  requestScopeLabel,
-  requestWordCount,
-  isRequesting,
-  clipProgress,
-  clipElapsedMs,
-  clipDurationMs,
-  clipCurrentWord,
-  clipTotalWords,
-}: {
-  isSpeaking: boolean;
-  isPaused: boolean;
-  activePageNumber: number | null;
-  activeParagraphId: string | null;
-  currentSessionLabel: string;
-  hasSelection: boolean;
-  selectedParagraphLabel: string | null;
-  downloadUrl: string | null;
-  selectionPreview: string;
-  onPlay: () => void;
-  onPlayParagraph: () => void;
-  onPauseOrResume: () => void;
-  onCancelRequest: () => void;
-  onStop: () => void;
-  onReadSelection: () => void;
-  requestScopeLabel: string | null;
-  requestWordCount: number | null;
-  isRequesting: boolean;
-  clipProgress: number;
-  clipElapsedMs: number;
-  clipDurationMs: number;
-  clipCurrentWord: number;
-  clipTotalWords: number;
-}) {
-  return (
-    <div className="linea-player">
-      <div className="wrap-wide">
-        <div className="linea-player-inner">
-        <div className="linea-player-info">
-          <div className="linea-player-meta">
-            {activePageNumber && <span>Page {activePageNumber}</span>}
-            {activeParagraphId && (
-              <span>{activeParagraphId.replaceAll("-", " ")}</span>
-            )}
-            {isSpeaking && !isPaused && (
-              <span className="linea-player-live">Playing</span>
-            )}
-            {isPaused && (
-              <span className="linea-player-live paused">Paused</span>
-            )}
-          </div>
-          <div className="linea-player-label">
-            {currentSessionLabel ||
-              (selectedParagraphLabel
-                ? `Selected ${selectedParagraphLabel}. Choose paragraph or page playback.`
-                : "Select a paragraph or press Play to start reading the page.")}
-          </div>
-          {requestScopeLabel && (
-            <div className="linea-player-request">
-              <span>Scope {requestScopeLabel}</span>
-              {requestWordCount !== null && <span>{requestWordCount.toLocaleString()} words</span>}
-              {isRequesting && <span className="linea-player-live">Requesting</span>}
-            </div>
-          )}
-          {(clipDurationMs > 0 || isRequesting) && (
-            <>
-              <div className="linea-player-request">
-                <span>{isRequesting ? "Generating one bounded clip" : "Playing one bounded clip"}</span>
-                {!isRequesting && clipTotalWords > 0 ? (
-                  <span>Word {Math.max(1, clipCurrentWord)} / {clipTotalWords}</span>
-                ) : null}
-                {!isRequesting && clipDurationMs > 0 ? (
-                  <span>{formatDurationMs(clipElapsedMs)} / {formatDurationMs(clipDurationMs)}</span>
-                ) : null}
-              </div>
-              {!isRequesting && (
-                <div className="linea-playback-meter">
-                  <div
-                    className="linea-playback-meter-fill"
-                    style={{ width: `${clipProgress * 100}%` }}
-                  />
-                </div>
-              )}
-            </>
-          )}
-          {hasSelection && (
-            <div className="linea-player-selection">
-              <Quote size={14} />
-              <span style={{
-                display: "-webkit-box",
-                WebkitLineClamp: 1,
-                WebkitBoxOrient: "vertical" as const,
-                overflow: "hidden",
-              }}>
-                {selectionPreview}
-              </span>
-            </div>
-          )}
-        </div>
-
-        <div className="linea-player-controls">
-          {hasSelection && (
-            <button
-              type="button"
-              className="linea-btn-secondary linea-btn-icon"
-              onClick={onReadSelection}
-            >
-              <BookOpen size={14} />
-              Selection
-            </button>
-          )}
-          {selectedParagraphLabel && (
-            <button
-              type="button"
-              className="linea-btn-secondary linea-btn-icon"
-              onClick={onPlayParagraph}
-            >
-              <BookOpen size={14} />
-              Paragraph
-            </button>
-          )}
-          {isRequesting && (
-            <button
-              type="button"
-              className="linea-btn-secondary linea-btn-icon"
-              onClick={onCancelRequest}
-            >
-              <X size={14} />
-              Cancel
-            </button>
-          )}
-          <button
-            type="button"
-            className="linea-btn linea-btn-icon"
-            onClick={isSpeaking || isPaused ? onPauseOrResume : onPlay}
-          >
-            {isPaused || !isSpeaking ? <Play size={14} /> : <Pause size={14} />}
-            {isPaused ? "Resume" : isSpeaking ? "Pause" : "Play"}
-          </button>
-          {(isSpeaking || isPaused) && (
-            <button
-              type="button"
-              className="linea-btn-secondary linea-btn-icon"
-              onClick={onStop}
-            >
-              <Square size={14} />
-            </button>
-          )}
-          {downloadUrl && (
-            <a
-              href={downloadUrl}
-              download
-              className="linea-btn-secondary linea-btn-icon"
-            >
-              <Upload size={14} />
-              Save audio
-            </a>
-          )}
-        </div>
-      </div>
-      </div>
-    </div>
   );
 }
 
@@ -1907,8 +1767,8 @@ export function App({ initialDocument }: AppProps) {
   /* ── document loaded ── */
 
   return (
-    <div className="linea-page linea-bg-document">
-      <Header document={document} onUploadClick={() => fileInputRef.current?.click()} theme={theme} toggleTheme={toggleTheme} />
+    <div className="linea-page linea-bg-document linea-frame">
+      <Header document={document} onUploadClick={() => fileInputRef.current?.click()} theme={theme} toggleTheme={toggleTheme} settings={settings} onSettingsChange={setSettings} voice={voice} />
 
       <input
         ref={fileInputRef}
@@ -1921,59 +1781,48 @@ export function App({ initialDocument }: AppProps) {
         }}
       />
 
-      {error && (
-        <div className="wrap-wide" style={{ marginBottom: 16 }}>
-          <div className="linea-error">{error}</div>
-        </div>
-      )}
+      <PdfSidebar
+        doc={pdfDoc}
+        document={document}
+        selectedPage={selectedPage}
+        onSelectPage={setSelectedPage}
+        onExpand={setExpandPage}
+      />
 
-      {document && (
-        <FloatingPlayer
-          isSpeaking={voice.isSpeaking}
-          isPaused={voice.isPaused}
-          activePageNumber={voice.activePageNumber}
-          activeParagraphId={voice.activeParagraphId}
-          currentSessionLabel={voice.currentSessionLabel}
-          hasSelection={Boolean(selectedPassage?.text)}
-          selectedParagraphLabel={selectedParagraph ? selectedParagraph.id.replace("page-", "p") : null}
-          downloadUrl={voice.activity.audioUrl}
-          selectionPreview={selectedPassage?.text ?? ""}
-          onPlay={handlePlayPage}
-          onPlayParagraph={handlePlaySelectedParagraph}
-          onCancelRequest={voice.cancelRequest}
-          onPauseOrResume={voice.pauseOrResume}
-          onStop={voice.stopSpeaking}
-          onReadSelection={handleReadSelection}
-          requestScopeLabel={voice.activity.scopeLabel}
-          requestWordCount={voice.activity.wordCount}
-          isRequesting={voice.activity.phase === "requesting"}
-          clipProgress={voice.playbackWindow.progress}
-          clipElapsedMs={voice.playbackWindow.elapsedMs}
-          clipDurationMs={voice.playbackWindow.durationMs}
-          clipCurrentWord={voice.playbackWindow.currentWord}
-          clipTotalWords={voice.playbackWindow.totalWords}
-        />
-      )}
-
-      <section className="linea-grid-3">
-        <PdfSidebar
-          doc={pdfDoc}
-          document={document}
-          selectedPage={selectedPage}
-          onSelectPage={setSelectedPage}
-          onExpand={setExpandPage}
-        />
-
-        <div className="linea-main">
-          {currentPage && (
-            <>
-              <ReadCTA
+      <div className="linea-main">
+        {error && (
+          <div style={{ padding: '0 28px' }}>
+            <div className="linea-error">{error}</div>
+          </div>
+        )}
+        {currentPage && (
+          <>
+            <CommandBar
+                document={document}
                 page={currentPage}
+                selectedPage={selectedPage}
+                selectedParagraph={selectedParagraph}
                 isSpeaking={voice.isSpeaking}
                 isPaused={voice.isPaused}
+                activePageNumber={voice.activePageNumber}
+                activeParagraphId={voice.activeParagraphId}
+                currentSessionLabel={voice.currentSessionLabel}
+                hasSelection={Boolean(selectedPassage?.text)}
+                downloadUrl={voice.activity.audioUrl}
+                selectionPreview={selectedPassage?.text ?? ""}
                 onPlay={handlePlayPage}
+                onCancelRequest={voice.cancelRequest}
                 onPauseOrResume={voice.pauseOrResume}
                 onStop={voice.stopSpeaking}
+                onReadSelection={handleReadSelection}
+                requestScopeLabel={voice.activity.scopeLabel}
+                requestWordCount={voice.activity.wordCount}
+                isRequesting={voice.activity.phase === "requesting"}
+                clipProgress={voice.playbackWindow.progress}
+                clipElapsedMs={voice.playbackWindow.elapsedMs}
+                clipDurationMs={voice.playbackWindow.durationMs}
+                clipCurrentWord={voice.playbackWindow.currentWord}
+                clipTotalWords={voice.playbackWindow.totalWords}
               />
               <ReaderPanel
                 document={document}
@@ -1992,19 +1841,17 @@ export function App({ initialDocument }: AppProps) {
           )}
         </div>
 
-        {currentPage && (
-          <ContextPanel
-            document={document}
-            page={currentPage}
-            settings={settings}
-            onSettingsChange={setSettings}
-            voice={voice}
-            onSpeakPage={handlePlayPage}
-            selectedParagraph={selectedParagraph}
-            onSpeakParagraph={handlePlaySelectedParagraph}
-          />
-        )}
-      </section>
+      {currentPage && (
+        <ContextPanel
+          document={document}
+          page={currentPage}
+          voice={voice}
+          selectedParagraph={selectedParagraph}
+          selectedParagraphId={selectedParagraphId}
+          selectedPage={selectedPage}
+          onSelectParagraph={setSelectedParagraphId}
+        />
+      )}
 
       {expandPage !== null && pdfDoc && (
         <PdfExpandOverlay
