@@ -893,7 +893,7 @@ function Header({
               Open PDF
             </button>
           ) : (
-            <a href="/playground">Sample Document</a>
+            <a href={`${import.meta.env.BASE_URL}playground`}>Sample Document</a>
           )}
         </nav>
       </div>
@@ -1133,7 +1133,7 @@ function Landing({
         <div className="mx-auto flex max-w-[1240px] items-center justify-between">
           <div className="text-[11px] font-mono font-semibold uppercase tracking-[0.28em] text-ink pl-2">Linea</div>
           <div className="flex gap-6 text-[10px] font-mono uppercase tracking-[0.16em] text-ink/48">
-            <a href="/playground" className="transition-colors hover:text-ink">Demo</a>
+            <a href={`${import.meta.env.BASE_URL}playground`} className="transition-colors hover:text-ink">Demo</a>
           </div>
         </div>
       </nav>
@@ -1176,7 +1176,7 @@ function Landing({
                   {loading ? "Opening..." : "Open a PDF"}
                 </button>
                 <a
-                  href="/playground"
+                  href={`${import.meta.env.BASE_URL}playground`}
                   className={`flex items-center justify-center gap-2 rounded-full border border-ink/30 px-7 py-2.5 text-[9px] font-mono font-semibold uppercase tracking-[0.17em] text-ink transition-all hover:bg-ink/5 sm:px-8 sm:py-3${loading ? " pointer-events-none opacity-50" : ""}`}
                 >
                   View Demo
@@ -1806,12 +1806,15 @@ export function App({ initialDocument }: AppProps) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (autoLoadedRef.current) return;
+    const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+    const path = window.location.pathname;
     const isPlayground =
-      window.location.pathname === "/playground" ||
+      path === `${base}/playground` ||
+      path === "/playground" ||
       new URLSearchParams(window.location.search).get("demo") === "1";
     if (isPlayground) {
       autoLoadedRef.current = true;
-      void loadSamplePdf("/samples/article.pdf", "Sample Article.pdf");
+      void loadSamplePdf(`${base}/samples/article.pdf`, "Sample Article.pdf");
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
