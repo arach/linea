@@ -545,29 +545,11 @@ function ContextPanel({
     [page.paragraphs, page.title],
   );
 
-  const wordsBeforePage = useMemo(() => {
-    let total = 0;
-    for (const p of document.pages) {
-      if (p.pageNumber >= selectedPage) break;
-      total += p.wordCount;
-    }
-    return total;
-  }, [document.pages, selectedPage]);
-
-  const readProgress = document.totalWords > 0
-    ? Math.round(((wordsBeforePage + page.wordCount) / document.totalWords) * 100)
-    : 0;
-
   return (
     <aside className="linea-context-panel">
-      {/* Page header + progress */}
       <div className="linea-panel-section">
         <div className="context-page-header">
           <span className="linea-panel-label">Page {page.pageNumber} / {document.pageCount}</span>
-          <span className="linea-panel-label">{readProgress}%</span>
-        </div>
-        <div className="linea-progress" style={{ height: 4 }}>
-          <div className="linea-progress-fill" style={{ width: `${readProgress}%` }} />
         </div>
         <div className="context-stats">
           <div>
@@ -602,24 +584,8 @@ function ContextPanel({
           {voice.activity.phase === "requesting" && (
             <div className="linea-player-meta">
               <LoaderCircle size={12} className="animate-spin" />
-              <span>Generating...</span>
+              <span>{voice.activity.label}</span>
             </div>
-          )}
-          {(voice.playbackWindow.durationMs > 0) && (
-            <>
-              <div className="linea-playback-meter">
-                <div
-                  className="linea-playback-meter-fill"
-                  style={{ width: `${voice.playbackWindow.progress * 100}%` }}
-                />
-              </div>
-              <div className="linea-player-meta">
-                <span>{formatDurationMs(voice.playbackWindow.elapsedMs)} / {formatDurationMs(voice.playbackWindow.durationMs)}</span>
-                {voice.playbackWindow.totalWords > 0 && (
-                  <span>word {Math.max(1, voice.playbackWindow.currentWord)} / {voice.playbackWindow.totalWords}</span>
-                )}
-              </div>
-            </>
           )}
         </div>
       )}
@@ -1051,6 +1017,17 @@ function Header({
   );
 }
 
+function RequestStageGlyph({ phaseIndex }: { phaseIndex: number }) {
+  return (
+    <div className="linea-request-glyph" aria-hidden="true">
+      {Array.from({ length: 6 }).map((_, index) => {
+        const active = index <= phaseIndex + 1 && index >= phaseIndex - 1;
+        return <span key={index} className={active ? "active" : ""} />;
+      })}
+    </div>
+  );
+}
+
 /* ─── command bar ─── */
 
 function CommandBar({
@@ -1079,6 +1056,7 @@ function CommandBar({
   clipDurationMs,
   clipCurrentWord,
   clipTotalWords,
+  onSeekClip,
 }: {
   document: ReaderDocument;
   page: ReaderPage;
@@ -1105,15 +1083,49 @@ function CommandBar({
   clipDurationMs: number;
   clipCurrentWord: number;
   clipTotalWords: number;
+  onSeekClip: (progress: number) => void;
 }) {
   const wordCount = selectedParagraph
     ? selectedParagraph.text.split(/\s+/).filter(Boolean).length
     : page.wordCount;
+  const [requestPhaseIndex, setRequestPhaseIndex] = useState(0);
 
   const showBottomRow =
     isSpeaking || isPaused || isRequesting || hasSelection || clipDurationMs > 0;
+  const progressPageNumber = activePageNumber ?? selectedPage;
+  const progressPage = document.pages.find((entry) => entry.pageNumber === progressPageNumber) ?? page;
+  let wordsBeforeProgressPage = 0;
+  for (const entry of document.pages) {
+    if (entry.pageNumber >= progressPage.pageNumber) break;
+    wordsBeforeProgressPage += entry.wordCount;
+  }
+  const intraDocumentRatio =
+    clipTotalWords > 0 && (isSpeaking || isPaused)
+      ? clipCurrentWord / clipTotalWords
+      : selectedPage === progressPage.pageNumber
+        ? 1
+        : 0;
+  const documentProgress =
+    document.totalWords > 0
+      ? Math.min(1, (wordsBeforeProgressPage + progressPage.wordCount * intraDocumentRatio) / document.totalWords)
+      : 0;
 
-  const pageProgress = selectedPage / document.pageCount;
+  useEffect(() => {
+    if (!isRequesting) {
+      setRequestPhaseIndex(0);
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      setRequestPhaseIndex((current) => (current + 1) % 3);
+    }, 1200);
+
+    return () => window.clearInterval(interval);
+  }, [isRequesting]);
+
+  const requestPhaseLabels = ["Requesting", "Processing", "Downloading"];
+  const requestPhaseLabel = requestPhaseLabels[requestPhaseIndex];
+  const canSeek = clipDurationMs > 0 && !isRequesting;
 
   return (
     <div className="linea-command-bar">
@@ -1141,8 +1153,12 @@ function CommandBar({
         </div>
       </div>
 
-      <div className="linea-progress">
-        <div className="linea-progress-fill" style={{ width: `${pageProgress * 100}%` }} />
+      <div className="linea-doc-progress-meta">
+        <span>Document progress</span>
+        <span>{Math.round(documentProgress * 100)}%</span>
+      </div>
+      <div className="linea-progress linea-doc-progress">
+        <div className="linea-progress-fill" style={{ width: `${documentProgress * 100}%` }} />
       </div>
       {showBottomRow && (
         <div className="linea-command-bottom">
@@ -1162,26 +1178,47 @@ function CommandBar({
               <div className="linea-player-request">
                 <span>Scope {requestScopeLabel}</span>
                 {requestWordCount !== null && <span>{requestWordCount.toLocaleString()} words</span>}
-                {isRequesting && <span className="linea-player-live">Requesting</span>}
+                {isRequesting && <span className="linea-player-live">{requestPhaseLabel}</span>}
               </div>
             )}
             {(clipDurationMs > 0 || isRequesting) && (
-              <>
-                <div className="linea-player-request">
-                  <span>{isRequesting ? "Generating clip" : "Playing clip"}</span>
-                  {!isRequesting && clipTotalWords > 0 && (
-                    <span>Word {Math.max(1, clipCurrentWord)} / {clipTotalWords}</span>
-                  )}
-                  {!isRequesting && clipDurationMs > 0 && (
-                    <span>{formatDurationMs(clipElapsedMs)} / {formatDurationMs(clipDurationMs)}</span>
+              <div className="linea-playback-control">
+                <div className="linea-playback-control-top">
+                  <div className="linea-player-request">
+                    <span>{isRequesting ? requestPhaseLabel : "Playback"}</span>
+                    {!isRequesting && clipTotalWords > 0 && (
+                      <span>Word {Math.max(1, clipCurrentWord)} / {clipTotalWords}</span>
+                    )}
+                  </div>
+                  {isRequesting ? (
+                    <RequestStageGlyph phaseIndex={requestPhaseIndex} />
+                  ) : (
+                    <span className="linea-player-request">
+                      <span>{formatDurationMs(clipElapsedMs)}</span>
+                      <span>{formatDurationMs(clipDurationMs)}</span>
+                    </span>
                   )}
                 </div>
-                {!isRequesting && (
-                  <div className="linea-playback-meter">
-                    <div className="linea-playback-meter-fill" style={{ width: `${clipProgress * 100}%` }} />
+                <div className="linea-playback-slider-wrap">
+                  <input
+                    type="range"
+                    min={0}
+                    max={1000}
+                    step={1}
+                    value={Math.round(clipProgress * 1000)}
+                    onChange={(event) => onSeekClip(Number(event.target.value) / 1000)}
+                    className="linea-playback-slider"
+                    disabled={!canSeek}
+                    aria-label="Playback position"
+                  />
+                  <div className="linea-playback-slider-track">
+                    <div
+                      className="linea-playback-slider-fill"
+                      style={{ width: `${clipProgress * 100}%` }}
+                    />
                   </div>
-                )}
-              </>
+                </div>
+              </div>
             )}
             {hasSelection && (
               <div className="linea-player-selection">
@@ -1993,6 +2030,7 @@ export function App({ initialDocument }: AppProps) {
                 clipDurationMs={voice.playbackWindow.durationMs}
                 clipCurrentWord={voice.playbackWindow.currentWord}
                 clipTotalWords={voice.playbackWindow.totalWords}
+                onSeekClip={voice.seekPlayback}
               />
               <ReaderPanel
                 document={document}

@@ -794,6 +794,40 @@ export function useVoiceConsole({
     setIsSpeaking(false);
   };
 
+  const seekPlayback = (progress: number) => {
+    const audio = audioRef.current;
+    const session = speechSession;
+
+    if (!audio || !session) {
+      return;
+    }
+
+    const durationMs = Number.isFinite(audio.duration) ? Math.max(0, audio.duration * 1000) : 0;
+    if (durationMs <= 0) {
+      return;
+    }
+
+    const nextProgress = clamp(progress, 0, 1);
+    const nextTimeMs = durationMs * nextProgress;
+    audio.currentTime = nextTimeMs / 1000;
+
+    const snapshot = trackerRef.current?.updateFromClock(nextTimeMs);
+    const nextCharIndex = snapshot?.currentCharIndex ?? 0;
+    const currentWord = Math.min(
+      playbackWindow.totalWords,
+      Math.max(0, countWords(session.text.slice(0, nextCharIndex))),
+    );
+
+    setSpokenCharacterIndex(nextCharIndex);
+    setPlaybackWindow((current) => ({
+      ...current,
+      elapsedMs: nextTimeMs,
+      durationMs,
+      progress: nextProgress,
+      currentWord,
+    }));
+  };
+
   const stopListening = () => {
     recognitionRef.current?.stop();
     recognitionRef.current = null;
@@ -905,6 +939,7 @@ export function useVoiceConsole({
     speakFromParagraph,
     speakSelection,
     pauseOrResume,
+    seekPlayback,
     cancelRequest: () => {
       debugVoice("cancel-request");
       requestAbortRef.current?.abort();
