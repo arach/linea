@@ -9,6 +9,7 @@
     "build:client": "vite build --outDir dist/client",
     "build:ssr": "vite build --ssr src/entry-server.tsx --outDir dist/server",
     "build:server": "tsup server/index.ts --format esm --out-dir dist --target node22 --splitting false",
+    "build:static": "vite build --outDir dist/static",
     "start": "NODE_ENV=production bun dist/index.js"
   },
   "dependencies": {
