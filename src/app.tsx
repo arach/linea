@@ -1880,6 +1880,22 @@ export function App({ initialDocument }: AppProps) {
     voice.speakPage(currentPage ?? undefined);
   }, [voice, currentPage]);
 
+  const documentProgress = useMemo(() => {
+    if (!document || document.totalWords === 0) return 0;
+    const progressPageNumber = voice.activePageNumber ?? selectedPage;
+    const progressPage = document.pages.find((p) => p.pageNumber === progressPageNumber) ?? currentPage;
+    let wordsBefore = 0;
+    for (const p of document.pages) {
+      if (p.pageNumber >= (progressPage?.pageNumber ?? 1)) break;
+      wordsBefore += p.wordCount;
+    }
+    const intraRatio =
+      voice.playbackWindow.totalWords > 0 && (voice.isSpeaking || voice.isPaused)
+        ? voice.playbackWindow.currentWord / voice.playbackWindow.totalWords
+        : selectedPage === (progressPage?.pageNumber ?? 1) ? 1 : 0;
+    return Math.min(1, (wordsBefore + (progressPage?.wordCount ?? 0) * intraRatio) / document.totalWords);
+  }, [document, selectedPage, currentPage, voice.activePageNumber, voice.isSpeaking, voice.isPaused, voice.playbackWindow]);
+
   /* ── loading sample ── */
 
   if (!document && loadingSample) {
@@ -1903,22 +1919,6 @@ export function App({ initialDocument }: AppProps) {
       </div>
     );
   }
-
-  const documentProgress = useMemo(() => {
-    if (!document || document.totalWords === 0) return 0;
-    const progressPageNumber = voice.activePageNumber ?? selectedPage;
-    const progressPage = document.pages.find((p) => p.pageNumber === progressPageNumber) ?? currentPage;
-    let wordsBefore = 0;
-    for (const p of document.pages) {
-      if (p.pageNumber >= (progressPage?.pageNumber ?? 1)) break;
-      wordsBefore += p.wordCount;
-    }
-    const intraRatio =
-      voice.playbackWindow.totalWords > 0 && (voice.isSpeaking || voice.isPaused)
-        ? voice.playbackWindow.currentWord / voice.playbackWindow.totalWords
-        : selectedPage === (progressPage?.pageNumber ?? 1) ? 1 : 0;
-    return Math.min(1, (wordsBefore + (progressPage?.wordCount ?? 0) * intraRatio) / document.totalWords);
-  }, [document, selectedPage, currentPage, voice.activePageNumber, voice.isSpeaking, voice.isPaused, voice.playbackWindow]);
 
   /* ── no document ── */
 
