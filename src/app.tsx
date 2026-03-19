@@ -1039,17 +1039,13 @@ function CommandBar({
   isPaused,
   activePageNumber,
   activeParagraphId,
-  currentSessionLabel,
   hasSelection,
   downloadUrl,
-  selectionPreview,
   onPlay,
   onCancelRequest,
   onPauseOrResume,
   onStop,
   onReadSelection,
-  requestScopeLabel,
-  requestWordCount,
   isRequesting,
   clipProgress,
   clipElapsedMs,
@@ -1066,17 +1062,13 @@ function CommandBar({
   isPaused: boolean;
   activePageNumber: number | null;
   activeParagraphId: string | null;
-  currentSessionLabel: string;
   hasSelection: boolean;
   downloadUrl: string | null;
-  selectionPreview: string;
   onPlay: () => void;
   onCancelRequest: () => void;
   onPauseOrResume: () => void;
   onStop: () => void;
   onReadSelection: () => void;
-  requestScopeLabel: string | null;
-  requestWordCount: number | null;
   isRequesting: boolean;
   clipProgress: number;
   clipElapsedMs: number;
@@ -1090,8 +1082,6 @@ function CommandBar({
     : page.wordCount;
   const [requestPhaseIndex, setRequestPhaseIndex] = useState(0);
 
-  const showBottomRow =
-    isSpeaking || isPaused || isRequesting || hasSelection || clipDurationMs > 0;
   const progressPageNumber = activePageNumber ?? selectedPage;
   const progressPage = document.pages.find((entry) => entry.pageNumber === progressPageNumber) ?? page;
   let wordsBeforeProgressPage = 0;
@@ -1127,132 +1117,99 @@ function CommandBar({
   const requestPhaseLabel = requestPhaseLabels[requestPhaseIndex];
   const canSeek = clipDurationMs > 0 && !isRequesting;
 
+  // Derive a short context label: "P1 ¶3" style
+  const activeParaNum = activeParagraphId?.match(/paragraph-(\d+)/)?.[1];
+  const contextLabel = (isSpeaking || isPaused)
+    ? `P${activePageNumber ?? selectedPage}${activeParaNum ? ` ¶${activeParaNum}` : ""}`
+    : selectedParagraph
+      ? `P${selectedPage} ¶${selectedParagraph.id.match(/paragraph-(\d+)/)?.[1] ?? ""}`
+      : `P${selectedPage}`;
+
+  const isActive = isSpeaking || isPaused || clipDurationMs > 0;
+
   return (
     <div className="linea-command-bar">
+      {/* Document progress bar — thin strip at top */}
+      <div className="linea-doc-progress-strip">
+        <div className="linea-progress-fill" style={{ width: `${documentProgress * 100}%` }} />
+      </div>
+
       <div className="linea-command-top">
         <span className="linea-command-meta">
-          {document.fileName} · Page {selectedPage}/{document.pageCount} · {formatCount(wordCount)} words
+          {contextLabel} · {formatCount(wordCount)} words
         </span>
+
+        {/* Playback slider — inline when active */}
+        {isActive && (
+          <div className="linea-command-slider">
+            <div className="linea-playback-slider-wrap">
+              <input
+                type="range"
+                min={0}
+                max={1000}
+                step={1}
+                value={Math.round(clipProgress * 1000)}
+                onChange={(event) => onSeekClip(Number(event.target.value) / 1000)}
+                className="linea-playback-slider"
+                disabled={!canSeek}
+                aria-label="Playback position"
+              />
+              <div className="linea-playback-slider-track">
+                <div
+                  className="linea-playback-slider-fill"
+                  style={{ width: `${clipProgress * 100}%` }}
+                />
+              </div>
+            </div>
+            <span className="linea-command-time">
+              {formatDurationMs(clipElapsedMs)} / {formatDurationMs(clipDurationMs)}
+            </span>
+          </div>
+        )}
+
+        {isRequesting && (
+          <div className="linea-command-requesting">
+            <RequestStageGlyph phaseIndex={requestPhaseIndex} />
+            <span className="linea-command-meta">{requestPhaseLabel}</span>
+          </div>
+        )}
+
         <div className="linea-command-actions">
+          {/* Unified play/pause/stop button */}
           <button
             type="button"
-            className="linea-btn-ghost linea-btn-icon"
-            onClick={isSpeaking || isPaused ? onPauseOrResume : onPlay}
+            className="linea-btn-secondary linea-btn-icon"
+            onClick={isSpeaking ? onPauseOrResume : isPaused ? onPauseOrResume : onPlay}
           >
-            {isPaused || !isSpeaking ? <Play size={14} /> : <Pause size={14} />}
+            {isSpeaking && !isPaused ? <Pause size={14} /> : isPaused ? <Play size={14} /> : <Play size={14} />}
+            {isSpeaking && !isPaused ? "Pause" : isPaused ? "Resume" : "Play"}
           </button>
           {(isSpeaking || isPaused) && (
             <button
               type="button"
-              className="linea-btn-ghost linea-btn-icon"
+              className="linea-btn-secondary linea-btn-icon"
               onClick={onStop}
             >
-              <Square size={14} />
+              <Square size={14} /> Stop
             </button>
+          )}
+          {hasSelection && (
+            <button type="button" className="linea-btn-secondary linea-btn-icon" onClick={onReadSelection}>
+              <BookOpen size={14} /> Selection
+            </button>
+          )}
+          {isRequesting && (
+            <button type="button" className="linea-btn-secondary linea-btn-icon" onClick={onCancelRequest}>
+              <X size={14} /> Cancel
+            </button>
+          )}
+          {downloadUrl && (
+            <a href={downloadUrl} download className="linea-btn-secondary linea-btn-icon">
+              <Upload size={14} /> Save audio
+            </a>
           )}
         </div>
       </div>
-
-      <div className="linea-doc-progress-meta">
-        <span>Document progress</span>
-        <span>{Math.round(documentProgress * 100)}%</span>
-      </div>
-      <div className="linea-progress linea-doc-progress">
-        <div className="linea-progress-fill" style={{ width: `${documentProgress * 100}%` }} />
-      </div>
-      {showBottomRow && (
-        <div className="linea-command-bottom">
-          <div className="linea-command-status">
-            {(isSpeaking || isPaused || isRequesting) && (
-              <div className="linea-player-meta">
-                {activePageNumber && <span>Page {activePageNumber}</span>}
-                {activeParagraphId && <span>{activeParagraphId.replaceAll("-", " ")}</span>}
-                {isSpeaking && !isPaused && <span className="linea-player-live">Playing</span>}
-                {isPaused && <span className="linea-player-live paused">Paused</span>}
-              </div>
-            )}
-            {currentSessionLabel && (
-              <div className="linea-player-label">{currentSessionLabel}</div>
-            )}
-            {requestScopeLabel && (
-              <div className="linea-player-request">
-                <span>Scope {requestScopeLabel}</span>
-                {requestWordCount !== null && <span>{requestWordCount.toLocaleString()} words</span>}
-                {isRequesting && <span className="linea-player-live">{requestPhaseLabel}</span>}
-              </div>
-            )}
-            {(clipDurationMs > 0 || isRequesting) && (
-              <div className="linea-playback-control">
-                <div className="linea-playback-control-top">
-                  <div className="linea-player-request">
-                    <span>{isRequesting ? requestPhaseLabel : "Playback"}</span>
-                    {!isRequesting && clipTotalWords > 0 && (
-                      <span>Word {Math.max(1, clipCurrentWord)} / {clipTotalWords}</span>
-                    )}
-                  </div>
-                  {isRequesting ? (
-                    <RequestStageGlyph phaseIndex={requestPhaseIndex} />
-                  ) : (
-                    <span className="linea-player-request">
-                      <span>{formatDurationMs(clipElapsedMs)}</span>
-                      <span>{formatDurationMs(clipDurationMs)}</span>
-                    </span>
-                  )}
-                </div>
-                <div className="linea-playback-slider-wrap">
-                  <input
-                    type="range"
-                    min={0}
-                    max={1000}
-                    step={1}
-                    value={Math.round(clipProgress * 1000)}
-                    onChange={(event) => onSeekClip(Number(event.target.value) / 1000)}
-                    className="linea-playback-slider"
-                    disabled={!canSeek}
-                    aria-label="Playback position"
-                  />
-                  <div className="linea-playback-slider-track">
-                    <div
-                      className="linea-playback-slider-fill"
-                      style={{ width: `${clipProgress * 100}%` }}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-            {hasSelection && (
-              <div className="linea-player-selection">
-                <Quote size={14} />
-                <span style={{
-                  display: "-webkit-box",
-                  WebkitLineClamp: 1,
-                  WebkitBoxOrient: "vertical" as const,
-                  overflow: "hidden",
-                }}>
-                  {selectionPreview}
-                </span>
-              </div>
-            )}
-          </div>
-          <div className="linea-command-controls">
-            {hasSelection && (
-              <button type="button" className="linea-btn-secondary linea-btn-icon" onClick={onReadSelection}>
-                <BookOpen size={14} /> Selection
-              </button>
-            )}
-            {isRequesting && (
-              <button type="button" className="linea-btn-secondary linea-btn-icon" onClick={onCancelRequest}>
-                <X size={14} /> Cancel
-              </button>
-            )}
-            {downloadUrl && (
-              <a href={downloadUrl} download className="linea-btn-secondary linea-btn-icon">
-                <Upload size={14} /> Save audio
-              </a>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -2013,17 +1970,13 @@ export function App({ initialDocument }: AppProps) {
                 isPaused={voice.isPaused}
                 activePageNumber={voice.activePageNumber}
                 activeParagraphId={voice.activeParagraphId}
-                currentSessionLabel={voice.currentSessionLabel}
                 hasSelection={Boolean(selectedPassage?.text)}
                 downloadUrl={voice.activity.audioUrl}
-                selectionPreview={selectedPassage?.text ?? ""}
                 onPlay={handlePlayPage}
                 onCancelRequest={voice.cancelRequest}
                 onPauseOrResume={voice.pauseOrResume}
                 onStop={voice.stopSpeaking}
                 onReadSelection={handleReadSelection}
-                requestScopeLabel={voice.activity.scopeLabel}
-                requestWordCount={voice.activity.wordCount}
                 isRequesting={voice.activity.phase === "requesting"}
                 clipProgress={voice.playbackWindow.progress}
                 clipElapsedMs={voice.playbackWindow.elapsedMs}
