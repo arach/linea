@@ -12,6 +12,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(rootDir, "src"),
+      // @arach/ora bundles server-only code that imports Node built-ins
+      // (crypto, child_process, fs, etc.) which break in the browser.
+      // Replace with a local re-export of just the browser-safe parts.
+      "@arach/ora": path.resolve(rootDir, "src/lib/ora-browser.ts"),
     },
   },
 });

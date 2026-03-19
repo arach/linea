@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import express from "express";
 
+import { loadServerEnv } from "./load-env";
 import { createVoxRouter } from "./vox/routes";
 
 function serializeState(value: unknown) {
@@ -11,6 +12,7 @@ function serializeState(value: unknown) {
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+loadServerEnv(path.resolve(__dirname, ".."));
 const clientDist = path.resolve(__dirname, "./client");
 const serverDist = path.resolve(__dirname, "./server");
 const port = Number(process.env.PORT ?? 4173);

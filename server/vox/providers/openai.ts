@@ -1,28 +1,30 @@
 import type { VoxProvider } from "../types";
+import { getOpenAIVoice, getProviderApiKey } from "../config";
 
 const OPENAI_TTS_URL = "https://api.openai.com/v1/audio/speech";
 
 export class OpenAIVoxProvider implements VoxProvider {
   readonly id = "openai";
   readonly label = "OpenAI";
-  readonly defaultVoice = process.env.OPENAI_TTS_VOICE ?? "alloy";
+  readonly defaultVoice = process.env.OPENAI_TTS_VOICE ?? getOpenAIVoice() ?? "alloy";
 
-  private apiKey = process.env.OPENAI_API_KEY ?? "";
   private model = process.env.OPENAI_TTS_MODEL ?? "gpt-4o-mini-tts";
 
-  isAvailable() {
-    return this.apiKey.length > 0;
+  async isAvailable() {
+    return (await getProviderApiKey("openai")).length > 0;
   }
 
   async synthesize(config: { text: string; voice: string; rate: number; instructions?: string }) {
-    if (!this.isAvailable()) {
+    const apiKey = await getProviderApiKey("openai");
+
+    if (!apiKey) {
       throw new Error("OPENAI_API_KEY is not configured");
     }
 
     const response = await fetch(OPENAI_TTS_URL, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${this.apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({

@@ -98,7 +98,7 @@ export function PdfDropzone({ onFile, loading, progress }: PdfDropzoneProps) {
 
           <div className="relative flex flex-wrap items-center gap-3">
             <Button type="button" variant="default" disabled={loading}>
-              {loading ? "Building reader view" : "Choose PDF"}
+              {loading ? "Building view" : "Choose PDF"}
             </Button>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <ScanText className="size-4 text-primary" />

@@ -1,19 +1,22 @@
 import type { VoxProvider } from "../types";
+import { getElevenLabsVoiceId, getProviderApiKey } from "../config";
 
 export class ElevenLabsVoxProvider implements VoxProvider {
   readonly id = "elevenlabs";
   readonly label = "ElevenLabs";
-  readonly defaultVoice = process.env.ELEVENLABS_VOICE_ID ?? "EXAVITQu4vr4xnSDxMaL";
+  readonly defaultVoice =
+    process.env.ELEVENLABS_VOICE_ID ?? getElevenLabsVoiceId() ?? "EXAVITQu4vr4xnSDxMaL";
 
-  private apiKey = process.env.ELEVENLABS_API_KEY ?? "";
   private modelId = process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2";
 
-  isAvailable() {
-    return this.apiKey.length > 0;
+  async isAvailable() {
+    return (await getProviderApiKey("elevenlabs")).length > 0;
   }
 
   async synthesize(config: { text: string; voice: string; rate: number }) {
-    if (!this.isAvailable()) {
+    const apiKey = await getProviderApiKey("elevenlabs");
+
+    if (!apiKey) {
       throw new Error("ELEVENLABS_API_KEY is not configured");
     }
 
@@ -24,7 +27,7 @@ export class ElevenLabsVoxProvider implements VoxProvider {
         headers: {
           Accept: "audio/mpeg",
           "Content-Type": "application/json",
-          "xi-api-key": this.apiKey,
+          "xi-api-key": apiKey,
         },
         body: JSON.stringify({
           text: config.text,

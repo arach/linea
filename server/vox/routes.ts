@@ -2,20 +2,102 @@ import fs from "node:fs/promises";
 
 import express from "express";
 
-import type { VoxSynthesisRequest } from "../../src/lib/vox";
+import type { VoxProviderId, VoxSynthesisRequest } from "../../src/lib/vox";
 import { VoxService } from "./service";
+
+function parseProviderId(value: string): VoxProviderId | null {
+  if (value === "openai" || value === "elevenlabs") {
+    return value;
+  }
+
+  return null;
+}
 
 export function createVoxRouter() {
   const router = express.Router();
   const vox = new VoxService();
+  const jsonBody = express.json({ limit: "2mb" });
 
-  router.get("/providers", (_req, res) => {
+  router.get("/providers", async (_req, res) => {
     res.json({
-      providers: vox.listProviders(),
+      providers: await vox.listProviders(),
     });
   });
 
-  router.post("/synthesize", express.json({ limit: "2mb" }), async (req, res) => {
+  router.get("/providers/:provider/voices", async (req, res) => {
+    try {
+      const provider = parseProviderId(req.params.provider);
+
+      if (!provider) {
+        res.status(400).json({ error: "Unsupported provider" });
+        return;
+      }
+
+      res.json({
+        voices: await vox.listVoices(provider),
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Voice discovery failed",
+      });
+    }
+  });
+
+  router.get("/credentials", async (_req, res) => {
+    res.json({
+      credentials: await vox.listCredentialStatuses(),
+    });
+  });
+
+  router.put("/credentials/:provider", jsonBody, async (req, res) => {
+    try {
+      const provider = parseProviderId(req.params.provider);
+      const apiKey = typeof req.body?.apiKey === "string" ? req.body.apiKey.trim() : "";
+
+      if (!provider) {
+        res.status(400).json({ error: "Unsupported provider" });
+        return;
+      }
+
+      if (!apiKey) {
+        res.status(400).json({ error: "API key is required" });
+        return;
+      }
+
+      const credential = await vox.setCredential(provider, apiKey);
+
+      res.status(201).json({
+        credential,
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Could not save credential",
+      });
+    }
+  });
+
+  router.delete("/credentials/:provider", async (req, res) => {
+    try {
+      const provider = parseProviderId(req.params.provider);
+
+      if (!provider) {
+        res.status(400).json({ error: "Unsupported provider" });
+        return;
+      }
+
+      const credential = await vox.deleteCredential(provider);
+
+      res.json({
+        credential,
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Could not delete credential",
+      });
+    }
+  });
+
+  router.post("/synthesize", jsonBody, async (req, res) => {
     try {
       const payload = req.body as VoxSynthesisRequest;
 
@@ -27,6 +109,11 @@ export function createVoxRouter() {
       const response = await vox.synthesize(payload);
       res.json(response);
     } catch (error) {
+      console.error("[linea:vox] synth-failed", {
+        provider: (req.body as VoxSynthesisRequest | undefined)?.provider ?? null,
+        voice: (req.body as VoxSynthesisRequest | undefined)?.voice ?? null,
+        error: error instanceof Error ? error.message : "Synthesis failed",
+      });
       res.status(500).json({
         error: error instanceof Error ? error.message : "Synthesis failed",
       });

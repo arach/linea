@@ -1,6 +1,15 @@
+import { OraPlaybackTracker, type OraPlaybackSegment } from "@arach/ora";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { ReaderPage, ReaderParagraph } from "@/lib/pdf";
+import {
+  fetchVoxProviders,
+  fetchVoxVoices,
+  synthesizeVox,
+  type VoxProviderId,
+  type VoxProviderStatus,
+  type VoxVoice,
+} from "@/lib/vox";
 import { clamp } from "@/lib/utils";
 
 type VoiceConsoleOptions = {
@@ -16,7 +25,53 @@ type SpeechSession = {
   paragraphId: string | null;
   charOffsetBase: number;
   kind: "page" | "paragraph" | "selection";
+  segments: OraPlaybackSegment[];
 };
+
+type VoiceActivityPhase =
+  | "idle"
+  | "requesting"
+  | "ready"
+  | "playing"
+  | "paused"
+  | "stopped"
+  | "ended"
+  | "error";
+
+type VoiceActivity = {
+  phase: VoiceActivityPhase;
+  label: string;
+  detail: string;
+  scopeLabel: string | null;
+  wordCount: number | null;
+  provider: VoxProviderId | null;
+  voice: string | null;
+  cacheKey: string | null;
+  audioUrl: string | null;
+  cached: boolean | null;
+  pageNumber: number | null;
+  paragraphId: string | null;
+};
+
+type VoicePlaybackWindow = {
+  elapsedMs: number;
+  durationMs: number;
+  progress: number;
+  currentWord: number;
+  totalWords: number;
+};
+
+function createSessionSegments(page: ReaderPage, startOffset = 0): OraPlaybackSegment[] {
+  return page.paragraphs
+    .filter((paragraph) => paragraph.end > startOffset)
+    .map((paragraph) => ({
+      id: paragraph.id,
+      start: Math.max(0, paragraph.start - startOffset),
+      end: Math.max(0, paragraph.end - startOffset),
+      label: paragraph.id,
+    }))
+    .filter((segment) => segment.end > segment.start);
+}
 
 function isBrowser() {
   return typeof window !== "undefined";
@@ -30,12 +85,36 @@ function getRecognitionConstructor() {
   return window.SpeechRecognition ?? window.webkitSpeechRecognition ?? null;
 }
 
+function debugVoice(event: string, detail?: Record<string, unknown>) {
+  if (!isBrowser()) {
+    return;
+  }
+
+  if (detail) {
+    console.info(`[linea:voice] ${event}`, detail);
+    return;
+  }
+
+  console.info(`[linea:voice] ${event}`);
+}
+
+function countWords(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return 0;
+  }
+
+  return trimmed.split(/\s+/).length;
+}
+
 export function useVoiceConsole({
   pages,
   selectedPage,
   onSelectPage,
 }: VoiceConsoleOptions) {
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [providers, setProviders] = useState<VoxProviderStatus[]>([]);
+  const [selectedProvider, setSelectedProvider] = useState<VoxProviderId>("openai");
+  const [voicesByProvider, setVoicesByProvider] = useState<Partial<Record<VoxProviderId, VoxVoice[]>>>({});
   const [selectedVoice, setSelectedVoice] = useState("");
   const [rate, setRate] = useState(1);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -44,15 +123,43 @@ export function useVoiceConsole({
   const [lastCommand, setLastCommand] = useState("");
   const [spokenCharacterIndex, setSpokenCharacterIndex] = useState(0);
   const [speechSession, setSpeechSession] = useState<SpeechSession | null>(null);
+  const [voiceError, setVoiceError] = useState("");
+  const [loadingVoices, setLoadingVoices] = useState(false);
+  const [activity, setActivity] = useState<VoiceActivity>({
+    phase: "idle",
+    label: "Idle",
+    detail: "Choose a page or paragraph to request audio.",
+    scopeLabel: null,
+    wordCount: null,
+    provider: null,
+    voice: null,
+    cacheKey: null,
+    audioUrl: null,
+    cached: null,
+    pageNumber: null,
+    paragraphId: null,
+  });
+  const [playbackWindow, setPlaybackWindow] = useState<VoicePlaybackWindow>({
+    elapsedMs: 0,
+    durationMs: 0,
+    progress: 0,
+    currentWord: 0,
+    totalWords: 0,
+  });
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const trackerRef = useRef<OraPlaybackTracker | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const requestAbortRef = useRef<AbortController | null>(null);
 
   const recognitionSupported = Boolean(getRecognitionConstructor());
   const selectedPageData = useMemo(
     () => pages.find((page) => page.pageNumber === selectedPage) ?? null,
     [pages, selectedPage],
   );
+  const voices = voicesByProvider[selectedProvider] ?? [];
+  const selectedProviderMeta =
+    providers.find((provider) => provider.id === selectedProvider) ?? null;
   const activeParagraph = useMemo(() => {
     const pageForSession =
       pages.find((page) => page.pageNumber === (speechSession?.pageNumber ?? selectedPage)) ??
@@ -74,92 +181,473 @@ export function useVoiceConsole({
         (paragraph) =>
           spokenCharacterIndex + (speechSession?.charOffsetBase ?? 0) >= paragraph.start &&
           spokenCharacterIndex + (speechSession?.charOffsetBase ?? 0) < paragraph.end + 2,
-      ) ?? selectedPageData.paragraphs[0]
+      ) ?? pageForSession.paragraphs[0] ?? null
     );
   }, [pages, selectedPage, selectedPageData, speechSession, spokenCharacterIndex]);
 
-  useEffect(() => {
-    if (!isBrowser()) {
-      return undefined;
+  const refreshProviders = async () => {
+    const nextProviders = await fetchVoxProviders();
+    setProviders(nextProviders);
+
+    const preferred =
+      nextProviders.find((provider) => provider.id === selectedProvider && provider.available) ??
+      nextProviders.find((provider) => provider.available) ??
+      nextProviders[0] ??
+      null;
+
+    if (preferred) {
+      setSelectedProvider(preferred.id);
     }
-
-    const updateVoices = () => {
-      const availableVoices = window.speechSynthesis.getVoices();
-      setVoices(availableVoices);
-
-      if (!selectedVoice && availableVoices[0]) {
-        setSelectedVoice(availableVoices[0].name);
-      }
-    };
-
-    updateVoices();
-    window.speechSynthesis.addEventListener("voiceschanged", updateVoices);
-
-    return () => {
-      window.speechSynthesis.removeEventListener("voiceschanged", updateVoices);
-    };
-  }, [selectedVoice]);
+  };
 
   useEffect(() => {
-    return () => {
-      if (!isBrowser()) {
-        return;
-      }
+    let cancelled = false;
 
-      recognitionRef.current?.stop();
-      window.speechSynthesis.cancel();
+    void (async () => {
+      try {
+        const nextProviders = await fetchVoxProviders();
+        debugVoice("providers-loaded", {
+          providers: nextProviders.map((provider) => ({
+            id: provider.id,
+            available: provider.available,
+            defaultVoice: provider.defaultVoice,
+          })),
+        });
+        if (cancelled) return;
+        setProviders(nextProviders);
+
+        const preferred =
+          nextProviders.find((provider) => provider.id === selectedProvider && provider.available) ??
+          nextProviders.find((provider) => provider.available) ??
+          nextProviders[0] ??
+          null;
+
+        if (preferred) {
+          setSelectedProvider(preferred.id);
+        }
+      } catch (error) {
+        debugVoice("providers-load-failed", {
+          error: error instanceof Error ? error.message : "unknown",
+        });
+        if (!cancelled) {
+          setVoiceError(error instanceof Error ? error.message : "Could not load voice providers.");
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
     };
   }, []);
 
-  const stopSpeaking = () => {
-    if (!isBrowser()) {
+  useEffect(() => {
+    if (!selectedProvider) return;
+    if (voicesByProvider[selectedProvider]) return;
+
+    let cancelled = false;
+    setLoadingVoices(true);
+    setVoiceError("");
+
+    void (async () => {
+      try {
+        const nextVoices = await fetchVoxVoices(selectedProvider);
+        debugVoice("voices-loaded", {
+          provider: selectedProvider,
+          count: nextVoices.length,
+          voices: nextVoices.slice(0, 8).map((voice) => voice.id),
+        });
+        if (cancelled) return;
+
+        setVoicesByProvider((current) => ({
+          ...current,
+          [selectedProvider]: nextVoices,
+        }));
+
+        if (!selectedVoice && nextVoices[0]) {
+          setSelectedVoice(nextVoices[0].id);
+        }
+      } catch (error) {
+        debugVoice("voices-load-failed", {
+          provider: selectedProvider,
+          error: error instanceof Error ? error.message : "unknown",
+        });
+        if (!cancelled) {
+          setVoiceError(error instanceof Error ? error.message : "Could not load provider voices.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingVoices(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProvider, selectedVoice, voicesByProvider]);
+
+  useEffect(() => {
+    const currentVoices = voicesByProvider[selectedProvider] ?? [];
+
+    if (currentVoices.some((voice) => voice.id === selectedVoice)) {
       return;
     }
 
-    window.speechSynthesis.cancel();
-    utteranceRef.current = null;
+    const fallbackVoice = currentVoices[0]?.id ?? selectedProviderMeta?.defaultVoice ?? "";
+    if (fallbackVoice) {
+      setSelectedVoice(fallbackVoice);
+    }
+  }, [selectedProvider, selectedProviderMeta?.defaultVoice, selectedVoice, voicesByProvider]);
+
+  useEffect(() => {
+    return () => {
+      requestAbortRef.current?.abort();
+      recognitionRef.current?.stop();
+      audioRef.current?.pause();
+      audioRef.current = null;
+    };
+  }, []);
+
+  const resetPlayback = () => {
+    trackerRef.current = null;
     setIsSpeaking(false);
     setIsPaused(false);
     setSpokenCharacterIndex(0);
     setSpeechSession(null);
+    setPlaybackWindow((current) => ({
+      ...current,
+      elapsedMs: 0,
+      durationMs: current.durationMs,
+      progress: 0,
+      currentWord: 0,
+    }));
   };
 
-  const speakSession = (session: SpeechSession) => {
-    if (!isBrowser() || !session.text.trim()) {
+  const stopSpeaking = () => {
+    debugVoice("stop-speaking");
+    requestAbortRef.current?.abort();
+    requestAbortRef.current = null;
+    audioRef.current?.pause();
+    audioRef.current = null;
+    resetPlayback();
+    setActivity((current) => ({
+      ...current,
+      phase: "stopped",
+      label: "Stopped",
+      detail:
+        current.phase === "requesting" ? "Synthesis request canceled." : "Playback stopped.",
+    }));
+  };
+
+  const speakSession = async (session: SpeechSession) => {
+    if (!session.text.trim()) {
+      return;
+    }
+
+    if (!selectedProviderMeta?.available) {
+      const fallbackProvider =
+        providers.find((provider) => provider.available) ?? null;
+
+      if (fallbackProvider && fallbackProvider.id !== selectedProvider) {
+        debugVoice("switching-to-available-provider", {
+          from: selectedProvider,
+          to: fallbackProvider.id,
+        });
+        setSelectedProvider(fallbackProvider.id);
+        setVoiceError(`Switched to ${fallbackProvider.label} because ${selectedProviderMeta?.label ?? "the selected provider"} is unavailable.`);
+        setActivity({
+          phase: "error",
+          label: "Provider unavailable",
+          detail: `Switched to ${fallbackProvider.label}. Retry the request to synthesize there.`,
+          scopeLabel: null,
+          wordCount: null,
+          provider: selectedProvider,
+          voice: null,
+          cacheKey: null,
+          audioUrl: null,
+          cached: null,
+          pageNumber: session.pageNumber,
+          paragraphId: session.paragraphId,
+        });
+        return;
+      }
+
+      debugVoice("speak-blocked-provider-unavailable", {
+        provider: selectedProvider,
+        label: selectedProviderMeta?.label ?? "unknown",
+      });
+      setVoiceError(`${selectedProviderMeta?.label ?? "Selected provider"} is not configured yet.`);
+      setActivity({
+        phase: "error",
+        label: "Provider unavailable",
+        detail: `${selectedProviderMeta?.label ?? "Selected provider"} is not configured yet.`,
+        scopeLabel: null,
+        wordCount: null,
+        provider: selectedProvider,
+        voice: null,
+        cacheKey: null,
+        audioUrl: null,
+        cached: null,
+        pageNumber: session.pageNumber,
+        paragraphId: session.paragraphId,
+      });
+      return;
+    }
+
+    const voiceId = selectedVoice || selectedProviderMeta.defaultVoice;
+    if (!voiceId) {
+      debugVoice("speak-blocked-no-voice", {
+        provider: selectedProvider,
+      });
+      setVoiceError("No voice is available for the selected provider.");
+      setActivity({
+        phase: "error",
+        label: "No voice selected",
+        detail: "Pick a voice before requesting audio.",
+        scopeLabel: null,
+        wordCount: null,
+        provider: selectedProvider,
+        voice: null,
+        cacheKey: null,
+        audioUrl: null,
+        cached: null,
+        pageNumber: session.pageNumber,
+        paragraphId: session.paragraphId,
+      });
       return;
     }
 
     stopSpeaking();
+    setVoiceError("");
+    const nextWordCount = countWords(session.text);
+    const scopeLabel =
+      session.kind === "page"
+        ? `Page ${session.pageNumber}`
+        : session.kind === "paragraph"
+          ? session.paragraphId?.replace("page-", "p") ?? "Paragraph"
+          : session.paragraphId?.replace("page-", "p") ?? "Selection";
+    setActivity({
+      phase: "requesting",
+      label: `Requesting ${session.kind}`,
+      detail: `Preparing ${scopeLabel.toLowerCase()} for speech with ${nextWordCount.toLocaleString()} words.`,
+      scopeLabel,
+      wordCount: nextWordCount,
+      provider: selectedProvider,
+      voice: voiceId,
+      cacheKey: null,
+      audioUrl: null,
+      cached: null,
+      pageNumber: session.pageNumber,
+      paragraphId: session.paragraphId,
+    });
+    debugVoice("speak-requested", {
+      provider: selectedProvider,
+      voice: voiceId,
+      pageNumber: session.pageNumber,
+      kind: session.kind,
+      textLength: session.text.length,
+      rate,
+    });
 
-    const utterance = new SpeechSynthesisUtterance(session.text.slice(0, 12000));
-    utterance.voice = voices.find((voice) => voice.name === selectedVoice) ?? null;
-    utterance.rate = rate;
-    utterance.onstart = () => {
-      setIsSpeaking(true);
-      setIsPaused(false);
-      setSpokenCharacterIndex(0);
-      setSpeechSession(session);
-      onSelectPage(session.pageNumber);
-    };
-    utterance.onend = () => {
-      setIsSpeaking(false);
-      setIsPaused(false);
-      setSpokenCharacterIndex(0);
-      setSpeechSession(null);
-    };
-    utterance.onerror = () => {
-      setIsSpeaking(false);
-      setIsPaused(false);
-      setSpokenCharacterIndex(0);
-      setSpeechSession(null);
-    };
-    utterance.onboundary = (event) => {
-      setSpokenCharacterIndex(event.charIndex);
-    };
+    try {
+      const abortController = new AbortController();
+      requestAbortRef.current = abortController;
+      const response = await synthesizeVox({
+        provider: selectedProvider,
+        text: session.text,
+        voice: voiceId,
+        rate,
+        format: "mp3",
+        source: {
+          pageNumber: session.pageNumber,
+          paragraphId: session.paragraphId,
+        },
+      }, {
+        signal: abortController.signal,
+      });
+      requestAbortRef.current = null;
+      debugVoice("synthesize-succeeded", {
+        provider: selectedProvider,
+        voice: response.voice,
+        cacheKey: response.cacheKey,
+        cached: response.cached,
+        audioUrl: response.audioUrl,
+      });
+      setActivity({
+        phase: "ready",
+        label: response.cached ? "Audio ready from cache" : "Audio generated",
+        detail: response.cached
+          ? "Serving a cached clip for this exact text, voice, and rate."
+          : "Generated a fresh clip and stored it in the local cache.",
+        scopeLabel,
+        wordCount: nextWordCount,
+        provider: selectedProvider,
+        voice: response.voice,
+        cacheKey: response.cacheKey,
+        audioUrl: response.audioUrl,
+        cached: response.cached,
+        pageNumber: session.pageNumber,
+        paragraphId: session.paragraphId,
+      });
 
-    utteranceRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
-    setLastCommand(session.label);
+      const audio = new Audio(response.audioUrl);
+      audioRef.current = audio;
+
+      audio.onloadedmetadata = () => {
+        const durationMs = Number.isFinite(audio.duration) ? Math.max(0, audio.duration * 1000) : 0;
+        setPlaybackWindow({
+          elapsedMs: 0,
+          durationMs,
+          progress: 0,
+          currentWord: 0,
+          totalWords: nextWordCount,
+        });
+      };
+
+      audio.onplay = () => {
+        debugVoice("audio-play");
+        trackerRef.current = new OraPlaybackTracker({
+          text: session.text,
+          segments: session.segments,
+        });
+        setIsSpeaking(true);
+        setIsPaused(false);
+        setSpokenCharacterIndex(0);
+        setSpeechSession(session);
+        setLastCommand(`${selectedProviderMeta.label}: ${session.label}`);
+        onSelectPage(session.pageNumber);
+        setActivity({
+          phase: "playing",
+          label: `Playing ${session.kind}`,
+          detail: response.cached
+            ? "Playback started from cached audio."
+            : "Playback started from freshly generated audio.",
+          scopeLabel,
+          wordCount: nextWordCount,
+          provider: selectedProvider,
+          voice: response.voice,
+          cacheKey: response.cacheKey,
+          audioUrl: response.audioUrl,
+          cached: response.cached,
+          pageNumber: session.pageNumber,
+          paragraphId: session.paragraphId,
+        });
+      };
+
+      audio.onpause = () => {
+        if (audio.ended) return;
+        debugVoice("audio-pause");
+        setIsPaused(true);
+        setIsSpeaking(false);
+        setActivity((current) => ({
+          ...current,
+          phase: "paused",
+          label: "Paused",
+          detail: "Playback paused. Resume will continue the current clip.",
+        }));
+      };
+
+      audio.ontimeupdate = () => {
+        const snapshot = trackerRef.current?.updateFromClock(audio.currentTime * 1000);
+        const nextCharIndex = snapshot?.currentCharIndex ?? 0;
+        setSpokenCharacterIndex(nextCharIndex);
+        const durationMs = Number.isFinite(audio.duration) ? Math.max(0, audio.duration * 1000) : 0;
+        const elapsedMs = Math.max(0, audio.currentTime * 1000);
+        const progress = durationMs > 0 ? Math.min(1, elapsedMs / durationMs) : 0;
+        const currentWord = Math.min(
+          nextWordCount,
+          Math.max(0, countWords(session.text.slice(0, nextCharIndex))),
+        );
+        setPlaybackWindow({
+          elapsedMs,
+          durationMs,
+          progress,
+          currentWord,
+          totalWords: nextWordCount,
+        });
+      };
+
+      audio.onended = () => {
+        debugVoice("audio-ended");
+        setActivity((current) => ({
+          ...current,
+          phase: "ended",
+          label: "Finished",
+          detail: "Playback completed.",
+        }));
+        setPlaybackWindow((current) => ({
+          ...current,
+          elapsedMs: current.durationMs,
+          progress: 1,
+          currentWord: current.totalWords,
+        }));
+        resetPlayback();
+      };
+
+      audio.onerror = () => {
+        debugVoice("audio-error", {
+          provider: selectedProvider,
+          voice: voiceId,
+          audioUrl: response.audioUrl,
+        });
+        setVoiceError("Audio playback failed.");
+        setActivity({
+          phase: "error",
+          label: "Playback failed",
+          detail: "The audio clip was generated, but the browser could not play it.",
+          scopeLabel,
+          wordCount: nextWordCount,
+          provider: selectedProvider,
+          voice: voiceId,
+          cacheKey: response.cacheKey,
+          audioUrl: response.audioUrl,
+          cached: response.cached,
+          pageNumber: session.pageNumber,
+          paragraphId: session.paragraphId,
+        });
+        resetPlayback();
+      };
+
+      await audio.play();
+    } catch (error) {
+      requestAbortRef.current = null;
+      if (error instanceof DOMException && error.name === "AbortError") {
+        debugVoice("synthesize-canceled", {
+          provider: selectedProvider,
+          voice: voiceId,
+        });
+        setVoiceError("");
+        setActivity((current) => ({
+          ...current,
+          phase: "stopped",
+          label: "Canceled",
+          detail: "Synthesis request canceled before audio was generated.",
+        }));
+        resetPlayback();
+        return;
+      }
+      debugVoice("synthesize-failed", {
+        provider: selectedProvider,
+        voice: voiceId,
+        error: error instanceof Error ? error.message : "unknown",
+      });
+      setVoiceError(error instanceof Error ? error.message : "Synthesis failed.");
+      setActivity({
+        phase: "error",
+        label: "Synthesis failed",
+        detail: error instanceof Error ? error.message : "The provider failed to return audio.",
+        scopeLabel,
+        wordCount: nextWordCount,
+        provider: selectedProvider,
+        voice: voiceId,
+        cacheKey: null,
+        audioUrl: null,
+        cached: null,
+        pageNumber: session.pageNumber,
+        paragraphId: session.paragraphId,
+      });
+      resetPlayback();
+    }
   };
 
   const speakPage = (page = selectedPageData) => {
@@ -167,13 +655,18 @@ export function useVoiceConsole({
       return;
     }
 
-    speakSession({
+    debugVoice("speak-page-click", {
+      pageNumber: page.pageNumber,
+    });
+
+    void speakSession({
       pageNumber: page.pageNumber,
       text: page.text,
       label: `Reading page ${page.pageNumber}`,
       paragraphId: page.paragraphs[0]?.id ?? null,
       charOffsetBase: 0,
       kind: "page",
+      segments: createSessionSegments(page),
     });
   };
 
@@ -182,13 +675,19 @@ export function useVoiceConsole({
       return;
     }
 
-    speakSession({
+    debugVoice("speak-paragraph-click", {
+      pageNumber: page.pageNumber,
+      paragraphId: paragraph.id,
+    });
+
+    void speakSession({
       pageNumber: page.pageNumber,
       text: page.text.slice(paragraph.start),
       label: `Reading from paragraph ${paragraph.id.replace("page-", "p")}`,
       paragraphId: paragraph.id,
       charOffsetBase: paragraph.start,
       kind: "paragraph",
+      segments: createSessionSegments(page, paragraph.start),
     });
   };
 
@@ -199,41 +698,60 @@ export function useVoiceConsole({
       return;
     }
 
-    const paragraph = page.paragraphs.find((entry) => entry.id === paragraphId) ?? null;
-    const baseOffset = paragraph ? Math.max(0, paragraph.text.indexOf(text)) + paragraph.start : 0;
+    debugVoice("speak-selection-click", {
+      pageNumber: page.pageNumber,
+      paragraphId,
+      textLength: text.length,
+    });
 
-    speakSession({
+    const paragraph = page.paragraphs.find((entry) => entry.id === paragraphId) ?? null;
+    const offsetInParagraph = paragraph ? paragraph.text.indexOf(text) : -1;
+    const baseOffset =
+      paragraph && offsetInParagraph >= 0 ? paragraph.start + offsetInParagraph : 0;
+
+    void speakSession({
       pageNumber: page.pageNumber,
       text,
       label: "Reading selection",
       paragraphId,
-      charOffsetBase: Number.isFinite(baseOffset) ? baseOffset : 0,
+      charOffsetBase: baseOffset,
       kind: "selection",
+      segments: paragraphId
+        ? [
+            {
+              id: paragraphId,
+              start: 0,
+              end: text.length,
+              label: paragraphId,
+            },
+          ]
+        : [],
     });
   };
 
   const pauseOrResume = () => {
-    if (!isBrowser()) {
-      return;
-    }
+    const audio = audioRef.current;
 
-    if (!isSpeaking && !isPaused) {
-      if (speechSession?.kind === "selection" && selectedPageData) {
-        speakSession(speechSession);
+    if (!audio) {
+      debugVoice("pause-or-resume-without-audio");
+      if (speechSession) {
+        void speakSession(speechSession);
       } else {
         speakPage();
       }
       return;
     }
 
-    if (window.speechSynthesis.paused) {
-      window.speechSynthesis.resume();
+    if (audio.paused) {
+      debugVoice("resume-audio");
+      void audio.play();
       setIsPaused(false);
       setIsSpeaking(true);
       return;
     }
 
-    window.speechSynthesis.pause();
+    debugVoice("pause-audio");
+    audio.pause();
     setIsPaused(true);
     setIsSpeaking(false);
   };
@@ -260,15 +778,18 @@ export function useVoiceConsole({
     recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
+      debugVoice("voice-command-listening-start");
       setIsListening(true);
       setLastCommand("Listening for commands");
     };
 
     recognition.onend = () => {
+      debugVoice("voice-command-listening-end");
       setIsListening(false);
     };
 
     recognition.onerror = () => {
+      debugVoice("voice-command-listening-error");
       setIsListening(false);
     };
 
@@ -281,6 +802,7 @@ export function useVoiceConsole({
         return;
       }
 
+      debugVoice("voice-command-heard", { transcript });
       setLastCommand(`Heard: "${transcript}"`);
 
       if (transcript.includes("next")) {
@@ -318,6 +840,9 @@ export function useVoiceConsole({
   };
 
   return {
+    providers,
+    selectedProvider,
+    setSelectedProvider,
     voices,
     selectedVoice,
     setSelectedVoice,
@@ -327,9 +852,14 @@ export function useVoiceConsole({
     isPaused,
     isListening,
     lastCommand,
+    voiceError,
+    loadingVoices,
+    activity,
+    playbackWindow,
     spokenCharacterIndex,
+    activeCharacterIndex: spokenCharacterIndex + (speechSession?.charOffsetBase ?? 0),
     activeParagraphId: activeParagraph?.id ?? null,
-    activePageNumber: speechSession?.pageNumber ?? selectedPage,
+    activePageNumber: speechSession?.pageNumber ?? null,
     currentSessionLabel: speechSession?.label ?? "",
     currentSessionKind: speechSession?.kind ?? null,
     recognitionSupported,
@@ -337,8 +867,32 @@ export function useVoiceConsole({
     speakFromParagraph,
     speakSelection,
     pauseOrResume,
+    cancelRequest: () => {
+      debugVoice("cancel-request");
+      requestAbortRef.current?.abort();
+    },
     stopSpeaking,
     startListening,
     stopListening,
+    refreshProviders: async () => {
+      setVoicesByProvider({});
+      setSelectedVoice("");
+      setVoiceError("");
+      setActivity({
+        phase: "idle",
+        label: "Idle",
+        detail: "Provider state refreshed.",
+        scopeLabel: null,
+        wordCount: null,
+        provider: null,
+        voice: null,
+        cacheKey: null,
+        audioUrl: null,
+        cached: null,
+        pageNumber: null,
+        paragraphId: null,
+      });
+      await refreshProviders();
+    },
   };
 }

@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 type FloatingPlayerProps = {
   isSpeaking: boolean;
   isPaused: boolean;
-  activePageNumber: number;
+  activePageNumber: number | null;
   activeParagraphId: string | null;
   currentSessionLabel: string;
   currentSessionKind: "page" | "paragraph" | "selection" | null;
@@ -41,7 +41,9 @@ export function FloatingPlayer({
                 <Waves className="size-3.5 text-primary" />
                 Overlay playback
               </span>
-              <span className="rounded-full border border-border/60 px-2.5 py-1">Page {activePageNumber}</span>
+              {activePageNumber ? (
+                <span className="rounded-full border border-border/60 px-2.5 py-1">Page {activePageNumber}</span>
+              ) : null}
               {activeParagraphId ? (
                 <span className="rounded-full border border-border/60 px-2.5 py-1">
                   {activeParagraphId.replaceAll("-", " ")}

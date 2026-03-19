@@ -4,6 +4,7 @@ import path from "node:path";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 
+import { loadServerEnv } from "./load-env";
 import { createVoxRouter } from "./vox/routes";
 
 function serializeState(value: unknown) {
@@ -11,6 +12,7 @@ function serializeState(value: unknown) {
 }
 
 const root = process.cwd();
+loadServerEnv(root);
 const app = express();
 const port = Number(process.env.PORT ?? 5173);
 

@@ -39,7 +39,7 @@ const LISTENING_WPM = 155;
 
 let pdfModulePromise: Promise<typeof import("pdfjs-dist")> | null = null;
 
-async function getPdfModule() {
+export async function getPdfModule() {
   if (!pdfModulePromise) {
     pdfModulePromise = (async () => {
       const [{ GlobalWorkerOptions }, workerModule, pdfModule] = await Promise.all([
@@ -74,7 +74,8 @@ function extractLines(items: Array<Record<string, unknown>>) {
     }
 
     const transform = Array.isArray(item.transform) ? item.transform : [];
-    const y = typeof transform[5] === "number" ? transform[5] : previousY ?? 0;
+    const rawY = transform[5];
+    const y: number = typeof rawY === "number" ? rawY : (previousY ?? 0);
     const hasEOL = Boolean(item.hasEOL);
     const shouldBreak = previousY !== null && Math.abs(y - previousY) > 4;
 

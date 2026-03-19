@@ -23,6 +23,6 @@ export interface VoxProvider {
   id: VoxProviderId;
   label: string;
   defaultVoice: string;
-  isAvailable(): boolean;
+  isAvailable(): Promise<boolean>;
   synthesize(config: VoxProviderConfig): Promise<Buffer>;
 }

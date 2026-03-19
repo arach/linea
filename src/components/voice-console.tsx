@@ -3,6 +3,7 @@ import { Mic, MicOff, Pause, Play, Square, Waves } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { VoxVoice } from "@/lib/vox";
 
 type VoiceConsoleProps = {
   recognitionSupported: boolean;
@@ -13,7 +14,7 @@ type VoiceConsoleProps = {
   setRate: (rate: number) => void;
   selectedVoice: string;
   setSelectedVoice: (name: string) => void;
-  voices: SpeechSynthesisVoice[];
+  voices: VoxVoice[];
   lastCommand: string;
   activeParagraphId: string | null;
   onSpeak: () => void;
@@ -94,8 +95,8 @@ export function VoiceConsole({
               className="h-11 w-full rounded-2xl border border-border/70 bg-white/6 px-4 outline-none transition focus:border-primary/50"
             >
               {voices.map((voice) => (
-                <option key={voice.name} value={voice.name}>
-                  {voice.name}
+                <option key={voice.id} value={voice.id}>
+                  {voice.label}
                 </option>
               ))}
             </select>
