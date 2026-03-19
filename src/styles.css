@@ -7,47 +7,85 @@
   --font-serif: "Libre Baskerville", serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
 
-  --color-bg: #F9F8F6;
-  --color-ink: #1A1A1A;
-  --color-accent: #E67E51;
-  --color-muted: #666666;
+  --color-bg: var(--bg);
+  --color-ink: var(--text);
+  --color-accent: var(--accent);
+  --color-muted: var(--text-2);
 
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted-foreground: var(--muted-foreground);
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
+  --color-card: var(--surface-card);
+  --color-card-foreground: var(--text);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--accent-fg);
+  --color-secondary: var(--tint-subtle);
+  --color-secondary-foreground: var(--text);
+  --color-muted-foreground: var(--text-2);
   --color-border: var(--border);
   --color-ring: var(--ring);
 }
 
+/* ── Light mode (default) ── */
+
 :root {
+  --bg: #F9F5EF;
+  --bg-2: #F0EBE3;
+  --text: #201915;
+  --text-2: #685d51;
+  --text-3: #9b8c7f;
+  --accent: #cf7346;
+  --accent-fg: #fff8f3;
+  --accent-dim: rgba(207, 115, 70, 0.12);
+  --border: rgba(60, 42, 24, 0.10);
+  --ring: rgba(207, 115, 70, 0.5);
+
+  /* Semantic surfaces */
+  --surface-glass: rgba(249, 245, 239, 0.88);
+  --surface-card: rgba(255, 255, 255, 0.72);
+  --surface-elevated: rgba(255, 255, 255, 0.84);
+  --overlay-bg: rgba(250, 245, 238, 0.96);
+  --scrollbar-thumb: rgba(0, 0, 0, 0.10);
+
+  /* Tints (polarity-aware subtle fills) */
+  --tint-faint: rgba(0, 0, 0, 0.02);
+  --tint-subtle: rgba(0, 0, 0, 0.04);
+  --tint-soft: rgba(0, 0, 0, 0.06);
+  --tint-hover: rgba(0, 0, 0, 0.06);
+  --tint-border: rgba(0, 0, 0, 0.08);
+  --tint-border-hover: rgba(0, 0, 0, 0.16);
+  --shadow-card: 0 20px 36px -28px rgba(0, 0, 0, 0.12);
+
+  --font-reader-mono:
+    "JetBrains Mono", "SFMono-Regular", "IBM Plex Mono", "Menlo", "Monaco", monospace;
+}
+
+/* ── Dark mode ── */
+
+[data-theme="dark"] {
   --bg: #111114;
   --bg-2: #18181c;
-  --border: rgba(255, 255, 255, 0.08);
   --text: #ddd9d1;
   --text-2: #8d8a85;
   --text-3: #5c5955;
   --accent: #d4734a;
+  --accent-fg: #1a0f09;
   --accent-dim: rgba(212, 115, 74, 0.12);
-
-  --background: #111114;
-  --foreground: #ddd9d1;
-  --card: rgba(24, 24, 28, 0.84);
-  --card-foreground: #ddd9d1;
-  --primary: #d4734a;
-  --primary-foreground: #1a0f09;
-  --secondary: rgba(255, 255, 255, 0.04);
-  --secondary-foreground: #ddd9d1;
-  --muted-foreground: #8d8a85;
+  --border: rgba(255, 255, 255, 0.08);
   --ring: rgba(212, 115, 74, 0.5);
 
-  --font-reader-mono:
-    "JetBrains Mono", "SFMono-Regular", "IBM Plex Mono", "Menlo", "Monaco", monospace;
+  --surface-glass: rgba(17, 17, 20, 0.88);
+  --surface-card: rgba(24, 24, 28, 0.84);
+  --surface-elevated: rgba(24, 24, 28, 0.84);
+  --overlay-bg: rgba(10, 10, 12, 0.96);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.08);
+
+  --tint-faint: rgba(255, 255, 255, 0.02);
+  --tint-subtle: rgba(255, 255, 255, 0.04);
+  --tint-soft: rgba(255, 255, 255, 0.06);
+  --tint-hover: rgba(255, 255, 255, 0.06);
+  --tint-border: rgba(255, 255, 255, 0.05);
+  --tint-border-hover: rgba(255, 255, 255, 0.16);
+  --shadow-card: 0 20px 36px -28px rgba(0, 0, 0, 0.65);
 }
 
 *,
@@ -121,13 +159,8 @@ textarea {
   z-index: 50;
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  background: rgba(17, 17, 20, 0.86);
+  background: var(--surface-glass);
   border-bottom: 1px solid var(--border);
-}
-
-.linea-header.landing {
-  background: rgba(247, 242, 234, 0.88);
-  border-bottom: 1px solid rgba(51, 37, 23, 0.08);
 }
 
 .linea-header .wrap,
@@ -728,7 +761,7 @@ textarea {
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 12px 22px;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--tint-faint);
   color: var(--text);
   font-family: var(--font-mono);
   font-size: 0.74rem;
@@ -739,7 +772,7 @@ textarea {
 }
 
 .linea-btn-secondary:hover {
-  border-color: rgba(255, 255, 255, 0.16);
+  border-color: var(--tint-border-hover);
   color: var(--text);
 }
 
@@ -759,7 +792,7 @@ textarea {
 
 .linea-btn-ghost:hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--tint-subtle);
 }
 
 .linea-btn-icon {
@@ -814,7 +847,7 @@ textarea {
 .linea-context-panel {
   border: 1px solid var(--border);
   border-radius: 20px;
-  background: rgba(24, 24, 28, 0.84);
+  background: var(--surface-card);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
@@ -858,7 +891,7 @@ textarea {
 .linea-progress {
   height: 6px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--tint-soft);
   overflow: hidden;
 }
 
@@ -874,7 +907,7 @@ textarea {
   margin: 0 0 18px;
   padding: 18px 20px;
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--tint-faint);
   color: var(--text-2);
   font-size: 1.04rem;
   line-height: 1.9;
@@ -887,7 +920,7 @@ textarea {
 }
 
 .linea-paragraph:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--tint-subtle);
 }
 
 .linea-paragraph.active {
@@ -897,8 +930,8 @@ textarea {
 }
 
 .linea-paragraph.selected {
-  border-color: rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--tint-border-hover);
+  background: var(--tint-soft);
 }
 
 .linea-paragraph-label {
@@ -962,7 +995,7 @@ textarea {
 
 .linea-panel::-webkit-scrollbar-thumb,
 .linea-context-panel::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--scrollbar-thumb);
   border-radius: 2px;
 }
 
@@ -971,7 +1004,7 @@ textarea {
 .linea-pdf-sidebar {
   border: 1px solid var(--border);
   border-radius: 20px;
-  background: rgba(24, 24, 28, 0.84);
+  background: var(--surface-card);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   position: sticky;
@@ -988,7 +1021,7 @@ textarea {
 }
 
 .linea-pdf-sidebar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--scrollbar-thumb);
   border-radius: 2px;
 }
 
@@ -1030,14 +1063,14 @@ textarea {
 }
 
 .pdf-thumbnail-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--scrollbar-thumb);
   border-radius: 2px;
 }
 
 .pdf-thumbnail-card {
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--tint-border);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.025);
+  background: var(--tint-faint);
   padding: 12px;
   cursor: pointer;
   text-align: left;
@@ -1047,7 +1080,7 @@ textarea {
 
 .pdf-thumbnail-card:hover {
   border-color: rgba(212, 115, 74, 0.24);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--tint-subtle);
   transform: translateY(-1px);
 }
 
@@ -1086,11 +1119,11 @@ textarea {
   width: 100%;
   border-radius: 12px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--tint-soft);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02)),
+    linear-gradient(180deg, var(--tint-subtle), var(--tint-faint)),
     var(--bg-2);
-  box-shadow: 0 20px 36px -28px rgba(0, 0, 0, 0.65);
+  box-shadow: var(--shadow-card);
 }
 
 .pdf-thumbnail-frame.placeholder {
@@ -1141,7 +1174,7 @@ textarea {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgba(10, 10, 12, 0.96);
+  background: var(--overlay-bg);
   backdrop-filter: blur(12px);
   display: flex;
   align-items: center;
@@ -1189,7 +1222,7 @@ textarea {
 .read-cta {
   border: 1px solid var(--border);
   border-radius: 16px;
-  background: rgba(24, 24, 28, 0.84);
+  background: var(--surface-card);
   backdrop-filter: blur(16px);
   padding: 14px 20px;
   display: flex;
@@ -1252,7 +1285,7 @@ textarea {
   padding: 5px 10px;
   border-radius: 999px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--tint-faint);
   color: var(--text-2);
 }
 
@@ -1309,7 +1342,7 @@ textarea {
 
 .linea-chip {
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--tint-faint);
   color: var(--text-2);
   padding: 8px 14px;
   border-radius: 999px;
@@ -1322,7 +1355,7 @@ textarea {
 }
 
 .linea-chip:hover {
-  border-color: rgba(255, 255, 255, 0.14);
+  border-color: var(--tint-border-hover);
 }
 
 .linea-chip.active {
@@ -1336,7 +1369,7 @@ textarea {
   height: 6px;
   -webkit-appearance: none;
   appearance: none;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--tint-soft);
   border-radius: 999px;
   outline: none;
   margin: 8px 0;
@@ -1378,7 +1411,7 @@ textarea {
 .voice-provider-tab {
   border: 1px solid var(--border);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--tint-faint);
   color: var(--text-2);
   padding: 8px 12px;
   display: inline-flex;
@@ -1389,7 +1422,7 @@ textarea {
 }
 
 .voice-provider-tab:hover {
-  border-color: rgba(255, 255, 255, 0.16);
+  border-color: var(--tint-border-hover);
 }
 
 .voice-provider-tab.active {
@@ -1413,7 +1446,7 @@ textarea {
   min-width: 20px;
   height: 20px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--tint-soft);
   font-family: var(--font-mono);
   font-size: 0.62rem;
   color: inherit;
@@ -1429,7 +1462,7 @@ textarea {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--tint-faint);
   color: inherit;
   text-align: left;
   padding: 12px 14px;
@@ -1438,7 +1471,7 @@ textarea {
 }
 
 .voice-card:hover {
-  border-color: rgba(255, 255, 255, 0.16);
+  border-color: var(--tint-border-hover);
   transform: translateY(-1px);
 }
 
@@ -1494,7 +1527,7 @@ textarea {
   height: 6px;
   border-radius: 999px;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--tint-soft);
 }
 
 .linea-playback-meter-fill {
@@ -1535,7 +1568,7 @@ textarea {
 .linea-player-inner {
   border: 1px solid var(--border);
   border-radius: 18px;
-  background: rgba(17, 17, 20, 0.94);
+  background: var(--surface-glass);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   padding: 12px 18px;
@@ -1657,20 +1690,13 @@ textarea {
 
 /* ── Background ── */
 
-.linea-bg {
-  --text: #201915;
-  --text-2: #685d51;
-  --text-3: #9b8c7f;
-  --border: rgba(60, 42, 24, 0.1);
-  --accent: #cf7346;
-  --accent-dim: rgba(207, 115, 70, 0.12);
+.linea-bg-document {
   background:
-    radial-gradient(circle at 18% 10%, rgba(224, 145, 103, 0.22), transparent 26%),
-    radial-gradient(circle at 82% 12%, rgba(213, 176, 123, 0.18), transparent 24%),
-    linear-gradient(180deg, #f7f2ea 0%, #f2ebe2 55%, #eee6dc 100%);
+    radial-gradient(circle at top, rgba(207, 115, 70, 0.06), transparent 24%),
+    linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
 }
 
-.linea-bg-document {
+[data-theme="dark"] .linea-bg-document {
   background:
     radial-gradient(circle at top, rgba(212, 115, 74, 0.08), transparent 24%),
     linear-gradient(180deg, #111114 0%, #15151a 100%);

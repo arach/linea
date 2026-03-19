@@ -11,7 +11,9 @@ import {
   Menu,
   Mic,
   MicOff,
+  Moon,
   MousePointer2,
+  Sun,
   Pause,
   Play,
   Quote,
@@ -48,6 +50,7 @@ import {
   readerThemes,
 } from "@/lib/reader-presentation";
 import { useVoiceConsole } from "@/lib/voice";
+import { useTheme } from "@/lib/theme";
 import { ProviderCredentials } from "@/components/provider-credentials";
 import { formatCount, formatMinutes } from "@/lib/utils";
 
@@ -863,15 +866,32 @@ function ContextPanel({
 
 /* ─── header ─── */
 
+function ThemeToggle({ theme, toggle }: { theme: string; toggle: () => void }) {
+  return (
+    <button
+      type="button"
+      className="linea-btn-ghost linea-btn-icon"
+      onClick={toggle}
+      aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+    >
+      {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
+    </button>
+  );
+}
+
 function Header({
   document,
   onUploadClick,
+  theme,
+  toggleTheme,
 }: {
   document: ReaderDocument | null;
   onUploadClick: () => void;
+  theme: string;
+  toggleTheme: () => void;
 }) {
   return (
-    <header className={`linea-header${document ? "" : " landing"}`}>
+    <header className="linea-header">
       <div className="wrap-wide">
         <div className="linea-header-brand">
           <span className="linea-logo">Linea</span>
@@ -895,6 +915,7 @@ function Header({
           ) : (
             <a href={`${import.meta.env.BASE_URL}playground`}>Sample Document</a>
           )}
+          <ThemeToggle theme={theme} toggle={toggleTheme} />
         </nav>
       </div>
     </header>
@@ -975,8 +996,8 @@ function LandingValueProp({
   desc: string;
 }) {
   return (
-    <div className="grid grid-cols-[36px_minmax(0,1fr)] items-start gap-3.5 border-t border-black/8 pt-4 first:border-t-0 first:pt-0">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] border border-black/8 bg-white/92 shadow-[0_10px_24px_-20px_rgba(0,0,0,0.45)] transition-colors group-hover:bg-accent/4">
+    <div className="grid grid-cols-[36px_minmax(0,1fr)] items-start gap-3.5 border-t border-ink/8 pt-4 first:border-t-0 first:pt-0">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] border border-ink/8 bg-bg/92 shadow-[0_10px_24px_-20px_rgba(0,0,0,0.25)] transition-colors group-hover:bg-accent/4">
         <Icon size={18} className="text-accent" />
       </div>
       <div className="space-y-1.5">
@@ -1057,11 +1078,15 @@ function Landing({
   loading,
   progress,
   error,
+  theme,
+  toggleTheme,
 }: {
   onFile: (file: File) => void;
   loading: boolean;
   progress: ExtractionProgress | null;
   error: string;
+  theme: string;
+  toggleTheme: () => void;
 }) {
   const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -1129,11 +1154,19 @@ function Landing({
       />
 
       {/* Navigation */}
-      <nav className="border-b border-black/8 px-6 py-5 md:px-8">
+      <nav className="border-b border-ink/8 px-6 py-5 md:px-8">
         <div className="mx-auto flex max-w-[1240px] items-center justify-between">
           <div className="text-[11px] font-mono font-semibold uppercase tracking-[0.28em] text-ink pl-2">Linea</div>
-          <div className="flex gap-6 text-[10px] font-mono uppercase tracking-[0.16em] text-ink/48">
+          <div className="flex items-center gap-4 text-[10px] font-mono uppercase tracking-[0.16em] text-ink/48">
             <a href={`${import.meta.env.BASE_URL}playground`} className="transition-colors hover:text-ink">Demo</a>
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="p-2 rounded-full transition-colors hover:bg-ink/5"
+              aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            >
+              {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
+            </button>
           </div>
         </div>
       </nav>
@@ -1170,7 +1203,7 @@ function Landing({
                   type="button"
                   onClick={() => inputRef.current?.click()}
                   disabled={loading}
-                  className="group flex items-center justify-center gap-2.5 rounded-full bg-ink px-7 py-2.5 text-[9px] font-mono font-bold uppercase tracking-[0.18em] text-bg shadow-xl shadow-black/10 transition-all hover:bg-accent disabled:opacity-50 sm:px-8 sm:py-3"
+                  className="group flex items-center justify-center gap-2.5 rounded-full bg-accent px-7 py-2.5 text-[9px] font-mono font-bold uppercase tracking-[0.18em] text-white shadow-xl shadow-accent/20 transition-all hover:brightness-110 disabled:opacity-50 sm:px-8 sm:py-3"
                 >
                   <Upload size={16} className="group-hover:-translate-y-0.5 transition-transform" />
                   {loading ? "Opening..." : "Open a PDF"}
@@ -1264,7 +1297,7 @@ function Landing({
           </div>
 
           {/* Secondary story */}
-          <div className="grid grid-cols-1 gap-10 border-t border-black/8 pt-14 md:grid-cols-3 md:gap-8">
+          <div className="grid grid-cols-1 gap-10 border-t border-ink/8 pt-14 md:grid-cols-3 md:gap-8">
             <div className="space-y-3">
               <h3 className="font-serif text-[1.4rem] leading-[1.05] tracking-[-0.03em] text-ink">Sustain concentration.</h3>
               <p className="max-w-[26ch] text-[13px] leading-6 text-ink/62">
@@ -1290,7 +1323,7 @@ function Landing({
         </div>
       </main>
 
-      <footer className="border-t border-black/8 px-6 py-10 md:px-8">
+      <footer className="border-t border-ink/8 px-6 py-10 md:px-8">
         <div className="mx-auto flex max-w-[1240px] flex-col items-center justify-between gap-8 md:flex-row">
           <div className="text-[10px] font-mono uppercase tracking-[0.16em] text-ink/42">
             © 2026 Linea · Designed for understanding
@@ -1698,6 +1731,7 @@ function FloatingPlayer({
 /* ─── main app ─── */
 
 export function App({ initialDocument }: AppProps) {
+  const { theme, toggle: toggleTheme } = useTheme();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [document, setDocument] = useState<ReaderDocument | null>(initialDocument);
   const [pdfData, setPdfData] = useState<Uint8Array | null>(null);
@@ -1866,7 +1900,7 @@ export function App({ initialDocument }: AppProps) {
 
   if (!document) {
     return (
-      <Landing onFile={handleFile} loading={loading} progress={progress} error={error} />
+      <Landing onFile={handleFile} loading={loading} progress={progress} error={error} theme={theme} toggleTheme={toggleTheme} />
     );
   }
 
@@ -1874,7 +1908,7 @@ export function App({ initialDocument }: AppProps) {
 
   return (
     <div className="linea-page linea-bg-document">
-      <Header document={document} onUploadClick={() => fileInputRef.current?.click()} />
+      <Header document={document} onUploadClick={() => fileInputRef.current?.click()} theme={theme} toggleTheme={toggleTheme} />
 
       <input
         ref={fileInputRef}

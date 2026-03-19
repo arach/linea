@@ -11,6 +11,14 @@
       content="Linea is a local-first PDF reading studio with text extraction, minimap navigation, and browser voice controls."
     />
     <title>Linea</title>
+    <script>
+      // Prevent flash of wrong theme — runs before first paint
+      (function () {
+        var t = localStorage.getItem("linea:theme");
+        if (!t) t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.setAttribute("data-theme", t);
+      })();
+    </script>
     <link rel="stylesheet" href="/src/styles.css" />
     <!--app-head-->
   </head>
