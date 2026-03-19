@@ -181,6 +181,19 @@ export class OraPlaybackTracker {
       createEstimatedTimeline({ text: options.text, tokens: this.tokens });
   }
 
+  /**
+   * Recalibrate the estimated timeline to match the actual audio duration.
+   * Fixes highlight drift caused by the initial heuristic estimate.
+   */
+  calibrate(durationMs: number): void {
+    if (durationMs <= 0) return;
+    this.timeline = createEstimatedTimeline({
+      text: this.text,
+      tokens: this.tokens,
+      durationMs,
+    });
+  }
+
   reset(): OraPlaybackSnapshot {
     this.currentTimeMs = 0;
     this.currentCharIndex = 0;

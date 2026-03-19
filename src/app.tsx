@@ -25,6 +25,7 @@ import {
   Zap,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { createPortal } from "react-dom";
 import {
   startTransition,
   useCallback,
@@ -441,32 +442,63 @@ function findActiveTokenIndex(tokens: ReturnType<typeof tokenizeParagraph>, rela
   return -1;
 }
 
+function renderDimSpans(paragraph: ReaderParagraph) {
+  const spans = paragraph.dimSpans;
+  if (!spans || spans.length === 0) return paragraph.text;
+
+  const parts: React.ReactNode[] = [];
+  let cursor = 0;
+  for (let i = 0; i < spans.length; i++) {
+    const s = spans[i];
+    if (s.start > cursor) {
+      parts.push(paragraph.text.slice(cursor, s.start));
+    }
+    parts.push(
+      <span key={`dim-${paragraph.id}-${i}`} className="linea-dim-span">
+        {paragraph.text.slice(s.start, s.end)}
+      </span>,
+    );
+    cursor = s.end;
+  }
+  if (cursor < paragraph.text.length) {
+    parts.push(paragraph.text.slice(cursor));
+  }
+  return parts;
+}
+
 function renderParagraphText(paragraph: ReaderParagraph, absoluteCharIndex: number | null) {
   if (absoluteCharIndex === null) {
-    return paragraph.text;
+    return renderDimSpans(paragraph);
   }
 
   const relativeCharIndex = absoluteCharIndex - paragraph.start;
   if (relativeCharIndex < 0 || relativeCharIndex > paragraph.text.length) {
-    return paragraph.text;
+    return renderDimSpans(paragraph);
   }
 
   const tokens = tokenizeParagraph(paragraph.text);
   const activeTokenIndex = findActiveTokenIndex(tokens, relativeCharIndex);
 
   if (activeTokenIndex < 0) {
-    return paragraph.text;
+    return renderDimSpans(paragraph);
   }
+
+  const dimSpans = paragraph.dimSpans ?? [];
 
   return tokens.map((token, index) => {
     if (token.isWhitespace) {
       return token.value;
     }
 
+    const isDimmed = dimSpans.some((s) => token.start >= s.start && token.end <= s.end);
+    const isHighlighted = index === activeTokenIndex;
+
     return (
       <span
         key={`${paragraph.id}:${token.start}`}
-        className={index === activeTokenIndex ? "linea-word-highlight" : undefined}
+        className={
+          isHighlighted ? "linea-word-highlight" : isDimmed ? "linea-dim-span" : undefined
+        }
       >
         {token.value}
       </span>
@@ -666,6 +698,74 @@ function HeaderPopover({
   );
 }
 
+function ApiKeySetupModal({
+  open,
+  onClose,
+  onCredentialsChanged,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCredentialsChanged: () => void;
+}) {
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose]);
+
+  if (!open) {
+    return null;
+  }
+
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  return createPortal(
+    <div className="linea-modal-backdrop" onClick={onClose}>
+      <div
+        className="linea-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="voice-api-key-setup-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="linea-modal-header">
+          <div>
+            <span className="linea-panel-label">Voice setup</span>
+            <h3 id="voice-api-key-setup-title" className="linea-modal-title">
+              Connect voice providers
+            </h3>
+          </div>
+          <button
+            type="button"
+            className="linea-btn-ghost linea-btn-icon"
+            onClick={onClose}
+            aria-label="Close API key setup"
+          >
+            <X size={14} />
+          </button>
+        </div>
+        <p className="linea-modal-copy">
+          Add API keys for OpenAI and ElevenLabs to enable voice playback. Keys are stored in your
+          operating system secure credential store.
+        </p>
+        <ProviderCredentials variant="plain" onCredentialsChanged={onCredentialsChanged} />
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 const SAMPLE_DOCUMENTS = [
   { file: "whitepaper.pdf", label: "White Paper", description: "AI research paper" },
   { file: "article.pdf", label: "Press Release", description: "Earnings report" },
@@ -694,10 +794,20 @@ function Header({
   voice: ReturnType<typeof useVoiceConsole>;
 }) {
   const [openPopover, setOpenPopover] = useState<"typography" | "theme" | "voice" | "library" | null>(null);
+  const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
   const togglePopover = (key: "typography" | "theme" | "voice" | "library") =>
     setOpenPopover((prev) => (prev === key ? null : key));
   const update = <K extends keyof ReaderSettings>(key: K, value: ReaderSettings[K]) =>
     onSettingsChange({ ...settings, [key]: value });
+  const hasAvailableVoiceProvider = voice.providers.some((provider) => provider.available);
+  const shouldOpenVoiceSetupModal = voice.providers.length > 0 && !hasAvailableVoiceProvider;
+
+  useEffect(() => {
+    if (openPopover === "voice" && shouldOpenVoiceSetupModal) {
+      setOpenPopover(null);
+      setApiKeyModalOpen(true);
+    }
+  }, [openPopover, shouldOpenVoiceSetupModal]);
 
   return (
     <header className="linea-header">
@@ -806,17 +916,20 @@ function Header({
                 <button
                   type="button"
                   className="linea-btn-ghost linea-btn-icon"
-                  onClick={() => togglePopover("voice")}
+                  onClick={() => {
+                    if (shouldOpenVoiceSetupModal) {
+                      setApiKeyModalOpen(true);
+                      setOpenPopover(null);
+                      return;
+                    }
+
+                    togglePopover("voice");
+                  }}
                   aria-label="Voice settings"
                 >
                   <AudioLines size={14} />
                 </button>
                 <HeaderPopover open={openPopover === "voice"} onClose={() => setOpenPopover(null)}>
-                  {!voice.providers.some((p) => p.available) && (
-                    <div className="linea-status">
-                      Save an API key below to enable voice synthesis.
-                    </div>
-                  )}
                   {voice.providers.length > 0 ? (
                     <>
                       <div className="voice-provider-tabs">
@@ -868,7 +981,13 @@ function Header({
                       className="linea-slider"
                     />
                   </div>
-                  <ProviderCredentials onCredentialsChanged={() => void voice.refreshProviders()} />
+                  <button
+                    type="button"
+                    className="linea-btn-secondary"
+                    onClick={() => setApiKeyModalOpen(true)}
+                  >
+                    Manage API keys
+                  </button>
                 </HeaderPopover>
               </div>
             </>
@@ -923,6 +1042,11 @@ function Header({
           )}
         </nav>
       </div>
+      <ApiKeySetupModal
+        open={apiKeyModalOpen}
+        onClose={() => setApiKeyModalOpen(false)}
+        onCredentialsChanged={() => void voice.refreshProviders()}
+      />
     </header>
   );
 }

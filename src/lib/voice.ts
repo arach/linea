@@ -526,12 +526,24 @@ export function useVoiceConsole({
         });
       };
 
+      const calibrateTracker = () => {
+        if (!trackerRef.current) return;
+        const durationMs = Number.isFinite(audio.duration) ? audio.duration * 1000 : 0;
+        if (durationMs > 0) {
+          trackerRef.current.calibrate(durationMs);
+          debugVoice("tracker-calibrated", { durationMs });
+        }
+      };
+
+      audio.onloadedmetadata = () => calibrateTracker();
+
       audio.onplay = () => {
         debugVoice("audio-play");
         trackerRef.current = new OraPlaybackTracker({
           text: session.text,
           segments: session.segments,
         });
+        calibrateTracker();
         setIsSpeaking(true);
         setIsPaused(false);
         setSpokenCharacterIndex(0);

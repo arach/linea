@@ -4,6 +4,7 @@ export type ReaderParagraph = {
   start: number;
   end: number;
   skip?: { reason: string; confidence: number } | null;
+  dimSpans?: { start: number; end: number; reason: string }[];
 };
 
 export type ReaderPage = {
@@ -202,12 +203,18 @@ export async function loadReaderDocument(
     const paragraphText = splitIntoParagraphs(lines);
     const paragraphs = createParagraphOffsets(pageNumber, paragraphText);
 
-    // Classify paragraphs for skip detection
+    // Classify paragraphs for skip/dim detection
     const classifications = classifyPage(paragraphs, pageNumber);
     for (let i = 0; i < paragraphs.length; i++) {
       const c = classifications[i];
       if (c.skip) {
         paragraphs[i].skip = { reason: c.reason!, confidence: c.confidence };
+      } else if (c.spans.length > 0) {
+        paragraphs[i].dimSpans = c.spans.map((s) => ({
+          start: s.start,
+          end: s.end,
+          reason: s.reason,
+        }));
       }
     }
 
