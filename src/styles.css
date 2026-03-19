@@ -255,6 +255,69 @@ textarea {
   border-radius: 2px;
 }
 
+/* ── Sample document picker ── */
+
+.sample-doc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sample-doc-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.sample-doc-item:hover {
+  background: var(--tint-subtle);
+}
+
+.sample-doc-item.active {
+  background: var(--tint-soft);
+  border-color: var(--tint-border-hover);
+}
+
+.sample-doc-item:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.sample-doc-icon {
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.sample-doc-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.sample-doc-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.sample-doc-desc {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-3);
+}
+
 /* ── Command Bar ── */
 
 .linea-command-bar {

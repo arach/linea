@@ -666,9 +666,17 @@ function HeaderPopover({
   );
 }
 
+const SAMPLE_DOCUMENTS = [
+  { file: "whitepaper.pdf", label: "White Paper", description: "AI research paper", icon: "📄" },
+  { file: "article.pdf", label: "Press Release", description: "Earnings report", icon: "📰" },
+  { file: "book.pdf", label: "Book", description: "Full-length book", icon: "📚" },
+] as const;
+
 function Header({
   document,
   onUploadClick,
+  onLoadSample,
+  loadingSample,
   theme,
   toggleTheme,
   settings,
@@ -677,14 +685,16 @@ function Header({
 }: {
   document: ReaderDocument | null;
   onUploadClick: () => void;
+  onLoadSample: (file: string, label: string) => void;
+  loadingSample: string | null;
   theme: string;
   toggleTheme: () => void;
   settings: ReaderSettings;
   onSettingsChange: (s: ReaderSettings) => void;
   voice: ReturnType<typeof useVoiceConsole>;
 }) {
-  const [openPopover, setOpenPopover] = useState<"typography" | "theme" | "voice" | null>(null);
-  const togglePopover = (key: "typography" | "theme" | "voice") =>
+  const [openPopover, setOpenPopover] = useState<"typography" | "theme" | "voice" | "library" | null>(null);
+  const togglePopover = (key: "typography" | "theme" | "voice" | "library") =>
     setOpenPopover((prev) => (prev === key ? null : key));
   const update = <K extends keyof ReaderSettings>(key: K, value: ReaderSettings[K]) =>
     onSettingsChange({ ...settings, [key]: value });
@@ -864,14 +874,53 @@ function Header({
             </>
           )}
           {document ? (
-            <button
-              type="button"
-              className="linea-btn-secondary linea-btn-icon"
-              onClick={onUploadClick}
-            >
-              <Upload size={14} />
-              Open PDF
-            </button>
+            <>
+              <div style={{ position: "relative" }}>
+                <button
+                  type="button"
+                  className="linea-btn-ghost linea-btn-icon"
+                  onClick={() => togglePopover("library")}
+                  aria-label="Sample documents"
+                >
+                  <BookOpen size={14} />
+                </button>
+                <HeaderPopover open={openPopover === "library"} onClose={() => setOpenPopover(null)}>
+                  <span className="linea-panel-label">Sample Documents</span>
+                  <div className="sample-doc-list">
+                    {SAMPLE_DOCUMENTS.map((sample) => (
+                      <button
+                        key={sample.file}
+                        type="button"
+                        className={`sample-doc-item${document?.fileName === sample.label + ".pdf" || document?.fileName === sample.file ? " active" : ""}`}
+                        disabled={loadingSample !== null}
+                        onClick={() => {
+                          const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+                          onLoadSample(`${base}/samples/${sample.file}`, sample.label);
+                          setOpenPopover(null);
+                        }}
+                      >
+                        <span className="sample-doc-icon">{sample.icon}</span>
+                        <div className="sample-doc-info">
+                          <span className="sample-doc-label">{sample.label}</span>
+                          <span className="sample-doc-desc">{sample.description}</span>
+                        </div>
+                        {loadingSample === sample.label && (
+                          <LoaderCircle size={12} className="animate-spin" style={{ color: "var(--accent)" }} />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </HeaderPopover>
+              </div>
+              <button
+                type="button"
+                className="linea-btn-secondary linea-btn-icon"
+                onClick={onUploadClick}
+              >
+                <Upload size={14} />
+                Open PDF
+              </button>
+            </>
           ) : (
             <a href={`${import.meta.env.BASE_URL}playground`}>Sample Document</a>
           )}
@@ -1708,7 +1757,7 @@ export function App({ initialDocument }: AppProps) {
       new URLSearchParams(window.location.search).get("demo") === "1";
     if (isPlayground) {
       autoLoadedRef.current = true;
-      void loadSamplePdf(`${base}/samples/article.pdf`, "Sample Article.pdf");
+      void loadSamplePdf(`${base}/samples/whitepaper.pdf`, "White Paper");
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1768,7 +1817,7 @@ export function App({ initialDocument }: AppProps) {
 
   return (
     <div className="linea-page linea-bg-document linea-frame">
-      <Header document={document} onUploadClick={() => fileInputRef.current?.click()} theme={theme} toggleTheme={toggleTheme} settings={settings} onSettingsChange={setSettings} voice={voice} />
+      <Header document={document} onUploadClick={() => fileInputRef.current?.click()} onLoadSample={(url, name) => void loadSamplePdf(url, name)} loadingSample={loadingSample} theme={theme} toggleTheme={toggleTheme} settings={settings} onSettingsChange={setSettings} voice={voice} />
 
       <input
         ref={fileInputRef}
