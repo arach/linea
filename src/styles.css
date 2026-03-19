@@ -223,9 +223,7 @@ textarea {
   padding: 16px;
   border-radius: 16px;
   border: 1px solid var(--border);
-  background: var(--surface-elevated);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  background: var(--bg);
   box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.18);
   display: flex;
   flex-direction: column;
@@ -265,10 +263,10 @@ textarea {
 
 .sample-doc-item {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 10px;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
   border: 1px solid transparent;
   background: transparent;
   cursor: pointer;
@@ -291,30 +289,17 @@ textarea {
   cursor: default;
 }
 
-.sample-doc-icon {
-  font-size: 1.2rem;
-  flex-shrink: 0;
-}
-
-.sample-doc-info {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  flex: 1;
-  min-width: 0;
-}
-
 .sample-doc-label {
   font-size: 0.82rem;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text);
 }
 
 .sample-doc-desc {
   font-family: var(--font-mono);
-  font-size: 0.62rem;
+  font-size: 0.6rem;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
   color: var(--text-3);
 }
 
@@ -1059,10 +1044,10 @@ textarea {
 
 .linea-copy p,
 .linea-paragraph {
-  margin: 0 0 18px;
-  padding: 18px 20px;
-  border-radius: 16px;
-  background: var(--tint-faint);
+  margin: 0 0 6px;
+  padding: 14px 18px;
+  border-radius: 10px;
+  background: transparent;
   color: var(--text-2);
   font-size: 1.04rem;
   line-height: 1.9;
@@ -1075,18 +1060,28 @@ textarea {
 }
 
 .linea-paragraph:hover {
-  background: var(--tint-subtle);
+  background: var(--tint-faint);
 }
 
 .linea-paragraph.active {
   color: var(--text);
-  background: rgba(212, 115, 74, 0.07);
-  border-color: rgba(212, 115, 74, 0.16);
+  background: rgba(212, 115, 74, 0.05);
+  border-color: rgba(212, 115, 74, 0.12);
 }
 
 .linea-paragraph.selected {
-  border-color: var(--tint-border-hover);
-  background: var(--tint-soft);
+  border-color: var(--border);
+  background: var(--tint-faint);
+}
+
+.linea-paragraph.skipped {
+  opacity: 0.4;
+  font-size: 0.88em;
+  padding: 8px 18px;
+}
+
+.linea-paragraph.skipped:hover {
+  opacity: 0.7;
 }
 
 
@@ -1473,6 +1468,14 @@ textarea {
   font-size: 0.6rem;
   color: var(--text-3);
   flex-shrink: 0;
+}
+
+.context-outline-item.dimmed {
+  opacity: 0.4;
+}
+
+.context-outline-item.dimmed .context-outline-text {
+  font-style: italic;
 }
 
 /* ── Player live indicator ── */

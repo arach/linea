@@ -3,6 +3,7 @@ export type ReaderParagraph = {
   text: string;
   start: number;
   end: number;
+  skip?: { reason: string; confidence: number } | null;
 };
 
 export type ReaderPage = {
@@ -34,6 +35,8 @@ export type ExtractionProgress = {
   totalPages: number;
   phase: "loading" | "extracting" | "done";
 };
+
+import { classifyPage } from "./paragraph-classify";
 
 const LISTENING_WPM = 155;
 
@@ -198,6 +201,16 @@ export async function loadReaderDocument(
     const lines = extractLines(textContent.items as Array<Record<string, unknown>>);
     const paragraphText = splitIntoParagraphs(lines);
     const paragraphs = createParagraphOffsets(pageNumber, paragraphText);
+
+    // Classify paragraphs for skip detection
+    const classifications = classifyPage(paragraphs, pageNumber);
+    for (let i = 0; i < paragraphs.length; i++) {
+      const c = classifications[i];
+      if (c.skip) {
+        paragraphs[i].skip = { reason: c.reason!, confidence: c.confidence };
+      }
+    }
+
     const text = paragraphs.map((paragraph) => paragraph.text).join("\n\n");
     const wordCount = countWords(text);
     const charCount = text.length;

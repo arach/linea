@@ -61,16 +61,38 @@ type VoicePlaybackWindow = {
   totalWords: number;
 };
 
+/**
+ * Build playback text and segments, filtering out skipped paragraphs.
+ * Returns { text, segments, firstParagraphId } for session construction.
+ */
+function buildPlaybackContent(page: ReaderPage, startOffset = 0) {
+  const eligible = page.paragraphs.filter(
+    (p) => p.end > startOffset && !p.skip,
+  );
+
+  let cursor = 0;
+  const segments: OraPlaybackSegment[] = [];
+  const textParts: string[] = [];
+
+  for (const p of eligible) {
+    const sliceStart = Math.max(p.start, startOffset);
+    const chunk = page.text.slice(sliceStart, p.end);
+    const start = cursor;
+    const end = cursor + chunk.length;
+    segments.push({ id: p.id, start, end, label: p.id });
+    textParts.push(chunk);
+    cursor = end + 2; // account for \n\n join
+  }
+
+  return {
+    text: textParts.join("\n\n"),
+    segments: segments.filter((s) => s.end > s.start),
+    firstParagraphId: eligible[0]?.id ?? null,
+  };
+}
+
 function createSessionSegments(page: ReaderPage, startOffset = 0): OraPlaybackSegment[] {
-  return page.paragraphs
-    .filter((paragraph) => paragraph.end > startOffset)
-    .map((paragraph) => ({
-      id: paragraph.id,
-      start: Math.max(0, paragraph.start - startOffset),
-      end: Math.max(0, paragraph.end - startOffset),
-      label: paragraph.id,
-    }))
-    .filter((segment) => segment.end > segment.start);
+  return buildPlaybackContent(page, startOffset).segments;
 }
 
 function isBrowser() {
@@ -659,14 +681,16 @@ export function useVoiceConsole({
       pageNumber: page.pageNumber,
     });
 
+    const playback = buildPlaybackContent(page);
+
     void speakSession({
       pageNumber: page.pageNumber,
-      text: page.text,
+      text: playback.text,
       label: `Reading page ${page.pageNumber}`,
-      paragraphId: page.paragraphs[0]?.id ?? null,
+      paragraphId: playback.firstParagraphId,
       charOffsetBase: 0,
       kind: "page",
-      segments: createSessionSegments(page),
+      segments: playback.segments,
     });
   };
 
@@ -680,14 +704,16 @@ export function useVoiceConsole({
       paragraphId: paragraph.id,
     });
 
+    const playback = buildPlaybackContent(page, paragraph.start);
+
     void speakSession({
       pageNumber: page.pageNumber,
-      text: page.text.slice(paragraph.start),
+      text: playback.text,
       label: `Reading from paragraph ${paragraph.id.replace("page-", "p")}`,
       paragraphId: paragraph.id,
       charOffsetBase: paragraph.start,
       kind: "paragraph",
-      segments: createSessionSegments(page, paragraph.start),
+      segments: playback.segments,
     });
   };
 

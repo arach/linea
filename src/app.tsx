@@ -617,7 +617,7 @@ function ContextPanel({
               <button
                 key={p.id}
                 type="button"
-                className={`context-outline-item${isActive ? " active" : ""}${isSelected ? " selected" : ""}`}
+                className={`context-outline-item${isActive ? " active" : ""}${isSelected ? " selected" : ""}${p.skip ? " dimmed" : ""}`}
                 onClick={() => {
                   onSelectParagraph(selectedParagraphId === p.id ? null : p.id);
                   const el = window.document.querySelector(`[data-paragraph-id="${p.id}"]`);
@@ -625,7 +625,7 @@ function ContextPanel({
                 }}
               >
                 <span className="context-outline-num">{i + 1}</span>
-                <span className="context-outline-text">{snippetText(p.text, 50)}</span>
+                <span className="context-outline-text">{p.skip ? `${p.skip.reason} · ${snippetText(p.text, 36)}` : snippetText(p.text, 50)}</span>
                 <span className="context-outline-wc">{wc}</span>
               </button>
             );
@@ -667,9 +667,9 @@ function HeaderPopover({
 }
 
 const SAMPLE_DOCUMENTS = [
-  { file: "whitepaper.pdf", label: "White Paper", description: "AI research paper", icon: "📄" },
-  { file: "article.pdf", label: "Press Release", description: "Earnings report", icon: "📰" },
-  { file: "book.pdf", label: "Book", description: "Full-length book", icon: "📚" },
+  { file: "whitepaper.pdf", label: "White Paper", description: "AI research paper" },
+  { file: "article.pdf", label: "Press Release", description: "Earnings report" },
+  { file: "book.pdf", label: "Book", description: "Full-length book" },
 ] as const;
 
 function Header({
@@ -899,11 +899,8 @@ function Header({
                           setOpenPopover(null);
                         }}
                       >
-                        <span className="sample-doc-icon">{sample.icon}</span>
-                        <div className="sample-doc-info">
-                          <span className="sample-doc-label">{sample.label}</span>
-                          <span className="sample-doc-desc">{sample.description}</span>
-                        </div>
+                        <span className="sample-doc-label">{sample.label}</span>
+                        <span className="sample-doc-desc">{sample.description}</span>
                         {loadingSample === sample.label && (
                           <LoaderCircle size={12} className="animate-spin" style={{ color: "var(--accent)" }} />
                         )}
@@ -1592,7 +1589,7 @@ function ReaderPanel({
                   onSelectParagraph(selectedParagraphId === paragraph.id ? null : paragraph.id);
                 }
               }}
-              className={`linea-paragraph${activeParagraphId === paragraph.id ? " active" : ""}${selectedParagraphId === paragraph.id ? " selected" : ""}`}
+              className={`linea-paragraph${activeParagraphId === paragraph.id ? " active" : ""}${selectedParagraphId === paragraph.id ? " selected" : ""}${paragraph.skip ? " skipped" : ""}`}
             >
               <span className="linea-paragraph-text">
                 {renderParagraphText(
