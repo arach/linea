@@ -161,7 +161,6 @@ textarea {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   background: var(--surface-glass);
-  border-bottom: 1px solid var(--border);
 }
 
 .linea-header .wrap,
@@ -539,14 +538,15 @@ textarea {
 }
 
 .linea-doc-progress-strip {
-  height: 3px;
-  background: var(--tint-soft);
+  height: 2px;
+  background: var(--border);
   overflow: hidden;
 }
 
 .linea-doc-progress-strip .linea-progress-fill {
   height: 100%;
   border-radius: 0;
+  transition: width 0.4s ease;
 }
 
 .linea-command-top {

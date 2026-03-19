@@ -748,6 +748,7 @@ function Header({
   settings,
   onSettingsChange,
   voice,
+  documentProgress,
 }: {
   document: ReaderDocument | null;
   onUploadClick: () => void;
@@ -758,6 +759,7 @@ function Header({
   settings: ReaderSettings;
   onSettingsChange: (s: ReaderSettings) => void;
   voice: ReturnType<typeof useVoiceConsole>;
+  documentProgress: number;
 }) {
   const [openPopover, setOpenPopover] = useState<"typography" | "theme" | "voice" | "library" | null>(null);
   const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
@@ -1013,6 +1015,11 @@ function Header({
         onClose={() => setApiKeyModalOpen(false)}
         onCredentialsChanged={() => void voice.refreshProviders()}
       />
+      {document && (
+        <div className="linea-doc-progress-strip">
+          <div className="linea-progress-fill" style={{ width: `${documentProgress * 100}%` }} />
+        </div>
+      )}
     </header>
   );
 }
@@ -1082,24 +1089,6 @@ function CommandBar({
     : page.wordCount;
   const [requestPhaseIndex, setRequestPhaseIndex] = useState(0);
 
-  const progressPageNumber = activePageNumber ?? selectedPage;
-  const progressPage = document.pages.find((entry) => entry.pageNumber === progressPageNumber) ?? page;
-  let wordsBeforeProgressPage = 0;
-  for (const entry of document.pages) {
-    if (entry.pageNumber >= progressPage.pageNumber) break;
-    wordsBeforeProgressPage += entry.wordCount;
-  }
-  const intraDocumentRatio =
-    clipTotalWords > 0 && (isSpeaking || isPaused)
-      ? clipCurrentWord / clipTotalWords
-      : selectedPage === progressPage.pageNumber
-        ? 1
-        : 0;
-  const documentProgress =
-    document.totalWords > 0
-      ? Math.min(1, (wordsBeforeProgressPage + progressPage.wordCount * intraDocumentRatio) / document.totalWords)
-      : 0;
-
   useEffect(() => {
     if (!isRequesting) {
       setRequestPhaseIndex(0);
@@ -1129,11 +1118,6 @@ function CommandBar({
 
   return (
     <div className="linea-command-bar">
-      {/* Document progress bar — thin strip at top */}
-      <div className="linea-doc-progress-strip">
-        <div className="linea-progress-fill" style={{ width: `${documentProgress * 100}%` }} />
-      </div>
-
       <div className="linea-command-top">
         <span className="linea-command-meta">
           {contextLabel} · {formatCount(wordCount)} words
@@ -1930,9 +1914,25 @@ export function App({ initialDocument }: AppProps) {
 
   /* ── document loaded ── */
 
+  const documentProgress = useMemo(() => {
+    if (document.totalWords === 0) return 0;
+    const progressPageNumber = voice.activePageNumber ?? selectedPage;
+    const progressPage = document.pages.find((p) => p.pageNumber === progressPageNumber) ?? currentPage;
+    let wordsBefore = 0;
+    for (const p of document.pages) {
+      if (p.pageNumber >= (progressPage?.pageNumber ?? 1)) break;
+      wordsBefore += p.wordCount;
+    }
+    const intraRatio =
+      voice.playbackWindow.totalWords > 0 && (voice.isSpeaking || voice.isPaused)
+        ? voice.playbackWindow.currentWord / voice.playbackWindow.totalWords
+        : selectedPage === (progressPage?.pageNumber ?? 1) ? 1 : 0;
+    return Math.min(1, (wordsBefore + (progressPage?.wordCount ?? 0) * intraRatio) / document.totalWords);
+  }, [document, selectedPage, currentPage, voice.activePageNumber, voice.isSpeaking, voice.isPaused, voice.playbackWindow]);
+
   return (
     <div className="linea-page linea-bg-document linea-frame">
-      <Header document={document} onUploadClick={() => fileInputRef.current?.click()} onLoadSample={(url, name) => void loadSamplePdf(url, name)} loadingSample={loadingSample} theme={theme} toggleTheme={toggleTheme} settings={settings} onSettingsChange={setSettings} voice={voice} />
+      <Header document={document} onUploadClick={() => fileInputRef.current?.click()} onLoadSample={(url, name) => void loadSamplePdf(url, name)} loadingSample={loadingSample} theme={theme} toggleTheme={toggleTheme} settings={settings} onSettingsChange={setSettings} voice={voice} documentProgress={documentProgress} />
 
       <input
         ref={fileInputRef}
