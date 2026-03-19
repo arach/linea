@@ -1904,18 +1904,8 @@ export function App({ initialDocument }: AppProps) {
     );
   }
 
-  /* ── no document ── */
-
-  if (!document) {
-    return (
-      <Landing onFile={handleFile} loading={loading} progress={progress} error={error} theme={theme} toggleTheme={toggleTheme} />
-    );
-  }
-
-  /* ── document loaded ── */
-
   const documentProgress = useMemo(() => {
-    if (document.totalWords === 0) return 0;
+    if (!document || document.totalWords === 0) return 0;
     const progressPageNumber = voice.activePageNumber ?? selectedPage;
     const progressPage = document.pages.find((p) => p.pageNumber === progressPageNumber) ?? currentPage;
     let wordsBefore = 0;
@@ -1929,6 +1919,16 @@ export function App({ initialDocument }: AppProps) {
         : selectedPage === (progressPage?.pageNumber ?? 1) ? 1 : 0;
     return Math.min(1, (wordsBefore + (progressPage?.wordCount ?? 0) * intraRatio) / document.totalWords);
   }, [document, selectedPage, currentPage, voice.activePageNumber, voice.isSpeaking, voice.isPaused, voice.playbackWindow]);
+
+  /* ── no document ── */
+
+  if (!document) {
+    return (
+      <Landing onFile={handleFile} loading={loading} progress={progress} error={error} theme={theme} toggleTheme={toggleTheme} />
+    );
+  }
+
+  /* ── document loaded ── */
 
   return (
     <div className="linea-page linea-bg-document linea-frame">
