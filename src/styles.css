@@ -462,6 +462,55 @@ textarea {
   padding: 14px;
 }
 
+.provider-runtime-card {
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 10%, transparent), transparent 36%),
+    var(--surface-card);
+  padding: 14px;
+}
+
+.provider-runtime-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.provider-runtime-title {
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.provider-runtime-copy {
+  margin: 6px 0 0;
+  color: var(--text-2);
+  line-height: 1.55;
+  font-size: 0.92rem;
+}
+
+.provider-runtime-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.provider-runtime-grid span {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.45);
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  text-align: center;
+}
+
 .voice-card-grid-compact {
   max-height: 200px;
   overflow-y: auto;
@@ -2390,7 +2439,8 @@ textarea {
   }
 
   .provider-featured-grid,
-  .provider-more-grid {
+  .provider-more-grid,
+  .provider-runtime-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -2422,7 +2472,8 @@ textarea {
   }
 
   .provider-featured-grid,
-  .provider-more-grid {
+  .provider-more-grid,
+  .provider-runtime-grid {
     grid-template-columns: 1fr;
   }
 }

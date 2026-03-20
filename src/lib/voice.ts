@@ -3,6 +3,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { ReaderPage, ReaderParagraph } from "@/lib/pdf";
 import {
+  alignWithVoxCompanion,
+  discoverVoxCompanion,
+  type VoxCompanionRuntime,
+} from "@/lib/vox-companion";
+import {
   alignVox,
   fetchVoxCapabilities,
   fetchVoxProviders,
@@ -139,6 +144,7 @@ export function useVoiceConsole({
 }: VoiceConsoleOptions) {
   const [providers, setProviders] = useState<VoxProviderStatus[]>([]);
   const [capabilities, setCapabilities] = useState<VoxCapabilities>({ alignment: false });
+  const [localRuntime, setLocalRuntime] = useState<VoxCompanionRuntime | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<VoxProviderId>("openai");
   const [voicesByProvider, setVoicesByProvider] = useState<Partial<Record<VoxProviderId, VoxVoice[]>>>({});
   const [selectedVoice, setSelectedVoice] = useState("");
@@ -263,6 +269,21 @@ export function useVoiceConsole({
         if (!cancelled) {
           setVoiceError(error instanceof Error ? error.message : "Could not load voice providers.");
         }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      const runtime = await discoverVoxCompanion();
+      if (!cancelled) {
+        setLocalRuntime(runtime);
       }
     })();
 
@@ -576,13 +597,32 @@ export function useVoiceConsole({
           paragraphId: session.paragraphId,
         });
 
-        if (capabilities.alignment) {
-          alignVox(response.cacheKey).then((alignment) => {
+        if (localRuntime?.capabilities.features?.alignment || capabilities.alignment) {
+          const audioUrl = response.audioUrl.startsWith("http")
+            ? response.audioUrl
+            : `${window.location.origin}${response.audioUrl}`;
+
+          const alignPromise = localRuntime
+            ? alignWithVoxCompanion(localRuntime, {
+                audioUrl,
+                cacheKey: response.cacheKey,
+                pageNumber: session.pageNumber,
+                paragraphId: session.paragraphId,
+              }).catch((err) => {
+                debugVoice("companion-alignment-failed", {
+                  error: err instanceof Error ? err.message : "unknown",
+                });
+                return null;
+              })
+            : alignVox(response.cacheKey).catch((err) => {
+                debugVoice("alignment-failed", { error: err instanceof Error ? err.message : "unknown" });
+                return null;
+              });
+
+          alignPromise.then((alignment) => {
             if (!alignment || !trackerRef.current) return;
             debugVoice("alignment-applied", { wordCount: alignment.words.length, durationMs: alignment.durationMs });
             trackerRef.current.applyAlignment(alignment.words);
-          }).catch((err) => {
-            debugVoice("alignment-failed", { error: err instanceof Error ? err.message : "unknown" });
           });
         }
       };
@@ -996,6 +1036,7 @@ export function useVoiceConsole({
     loadingVoices,
     activity,
     playbackWindow,
+    localRuntime,
     spokenCharacterIndex,
     activeCharacterIndex: spokenCharacterIndex + (speechSession?.charOffsetBase ?? 0),
     activeParagraphId: activeParagraph?.id ?? null,
@@ -1035,6 +1076,7 @@ export function useVoiceConsole({
         paragraphId: null,
       });
       setCapabilities(await fetchVoxCapabilities().catch(() => ({ alignment: false })));
+      setLocalRuntime(await discoverVoxCompanion());
       await refreshProviders();
     },
   };

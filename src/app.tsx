@@ -668,10 +668,12 @@ function ApiKeySetupModal({
   open,
   onClose,
   onCredentialsChanged,
+  localRuntime,
 }: {
   open: boolean;
   onClose: () => void;
   onCredentialsChanged: () => void;
+  localRuntime: ReturnType<typeof useVoiceConsole>["localRuntime"];
 }) {
   useEffect(() => {
     if (!open) {
@@ -725,7 +727,11 @@ function ApiKeySetupModal({
           Add API keys for OpenAI and ElevenLabs to enable voice playback. Keys are stored in your
           operating system secure credential store.
         </p>
-        <ProviderCredentials variant="plain" onCredentialsChanged={onCredentialsChanged} />
+        <ProviderCredentials
+          variant="plain"
+          localRuntime={localRuntime}
+          onCredentialsChanged={onCredentialsChanged}
+        />
       </div>
     </div>,
     document.body,
@@ -956,6 +962,11 @@ function Header({
                   >
                     Manage API keys
                   </button>
+                  {voice.localRuntime ? (
+                    <div className="linea-status">
+                      Vox Companion connected on {voice.localRuntime.baseUrl.replace("http://", "")}
+                    </div>
+                  ) : null}
                 </HeaderPopover>
               </div>
             </>
@@ -1014,6 +1025,7 @@ function Header({
         open={apiKeyModalOpen}
         onClose={() => setApiKeyModalOpen(false)}
         onCredentialsChanged={() => void voice.refreshProviders()}
+        localRuntime={voice.localRuntime}
       />
       {document && (
         <div className="linea-doc-progress-strip">

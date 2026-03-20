@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { VoxCompanionRuntime } from "@/lib/vox-companion";
 import {
   deleteVoxCredential,
   fetchVoxCredentials,
@@ -132,9 +133,11 @@ function describeCredential(credential: VoxCredentialStatus | undefined) {
 export function ProviderCredentials({
   onCredentialsChanged,
   variant = "card",
+  localRuntime = null,
 }: {
   onCredentialsChanged?: () => void;
   variant?: "card" | "plain";
+  localRuntime?: VoxCompanionRuntime | null;
 }) {
   const [credentials, setCredentials] = useState<Partial<Record<VoxProviderId, VoxCredentialStatus>>>(
     {},
@@ -246,6 +249,29 @@ export function ProviderCredentials({
       {message ? (
         <div className="rounded-[18px] border border-emerald-300/30 bg-emerald-300/10 px-4 py-3 text-sm text-emerald-100">
           {message}
+        </div>
+      ) : null}
+
+      {localRuntime ? (
+        <div className="provider-runtime-card">
+          <div className="provider-runtime-top">
+            <div>
+              <div className="provider-runtime-title">Vox Companion connected</div>
+              <p className="provider-runtime-copy">
+                Local runtime detected at {localRuntime.baseUrl.replace("http://", "")}. Linea can
+                use it for local alignment when the companion job API is enabled.
+              </p>
+            </div>
+            <span className="provider-status-pill">
+              <ShieldCheck className="size-3.5 text-primary" />
+              Local
+            </span>
+          </div>
+          <div className="provider-runtime-grid">
+            <span>Alignment {localRuntime.capabilities.features?.alignment ? "ready" : "off"}</span>
+            <span>ASR {localRuntime.capabilities.features?.local_asr ? "ready" : "off"}</span>
+            <span>Streaming {localRuntime.capabilities.features?.streaming_progress ? "ready" : "off"}</span>
+          </div>
         </div>
       ) : null}
 
