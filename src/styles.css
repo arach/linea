@@ -1290,6 +1290,8 @@ textarea {
   text-align: left;
   width: 100%;
   font-family: inherit;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .linea-paragraph:hover {
@@ -1337,6 +1339,44 @@ textarea {
   background: rgba(255, 190, 140, 0.22);
   color: var(--text);
   box-shadow: 0 0 0 1px rgba(255, 190, 140, 0.14);
+}
+
+/* ── selection popover ── */
+
+.linea-selection-popover {
+  position: fixed;
+  transform: translateX(-50%);
+  z-index: 200;
+  pointer-events: auto;
+  animation: linea-pop-in 0.12s ease-out;
+}
+
+.linea-selection-popover-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.linea-selection-popover-btn:hover {
+  background: var(--tint-faint);
+  border-color: var(--text-3);
+}
+
+@keyframes linea-pop-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
 .linea-reader-nav {

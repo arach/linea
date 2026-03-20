@@ -3,9 +3,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { ReaderPage, ReaderParagraph } from "@/lib/pdf";
 import {
+  alignVox,
+  fetchVoxCapabilities,
   fetchVoxProviders,
   fetchVoxVoices,
   synthesizeVox,
+  type VoxCapabilities,
   type VoxProviderId,
   type VoxProviderStatus,
   type VoxVoice,
@@ -135,6 +138,7 @@ export function useVoiceConsole({
   onSelectPage,
 }: VoiceConsoleOptions) {
   const [providers, setProviders] = useState<VoxProviderStatus[]>([]);
+  const [capabilities, setCapabilities] = useState<VoxCapabilities>({ alignment: false });
   const [selectedProvider, setSelectedProvider] = useState<VoxProviderId>("openai");
   const [voicesByProvider, setVoicesByProvider] = useState<Partial<Record<VoxProviderId, VoxVoice[]>>>({});
   const [selectedVoice, setSelectedVoice] = useState("");
@@ -227,16 +231,21 @@ export function useVoiceConsole({
 
     void (async () => {
       try {
-        const nextProviders = await fetchVoxProviders();
+        const [nextProviders, nextCapabilities] = await Promise.all([
+          fetchVoxProviders(),
+          fetchVoxCapabilities().catch(() => ({ alignment: false })),
+        ]);
         debugVoice("providers-loaded", {
           providers: nextProviders.map((provider) => ({
             id: provider.id,
             available: provider.available,
             defaultVoice: provider.defaultVoice,
           })),
+          capabilities: nextCapabilities,
         });
         if (cancelled) return;
         setProviders(nextProviders);
+        setCapabilities(nextCapabilities);
 
         const preferred =
           nextProviders.find((provider) => provider.id === selectedProvider && provider.available) ??
@@ -566,6 +575,16 @@ export function useVoiceConsole({
           pageNumber: session.pageNumber,
           paragraphId: session.paragraphId,
         });
+
+        if (capabilities.alignment) {
+          alignVox(response.cacheKey).then((alignment) => {
+            if (!alignment || !trackerRef.current) return;
+            debugVoice("alignment-applied", { wordCount: alignment.words.length, durationMs: alignment.durationMs });
+            trackerRef.current.applyAlignment(alignment.words);
+          }).catch((err) => {
+            debugVoice("alignment-failed", { error: err instanceof Error ? err.message : "unknown" });
+          });
+        }
       };
 
       audio.onpause = () => {
@@ -794,6 +813,55 @@ export function useVoiceConsole({
     setIsSpeaking(false);
   };
 
+  const seekToCharIndex = (charIndex: number) => {
+    const audio = audioRef.current;
+    const session = speechSession;
+    const tracker = trackerRef.current;
+
+    if (!audio || !session || !tracker) {
+      return;
+    }
+
+    const durationMs = Number.isFinite(audio.duration) ? Math.max(0, audio.duration * 1000) : 0;
+    if (durationMs <= 0) {
+      return;
+    }
+
+    // Convert absolute char index to session-relative
+    const relativeIndex = clamp(charIndex - (session.charOffsetBase ?? 0), 0, session.text.length);
+
+    // Find the corresponding time from the timeline
+    const totalTimeMs = tracker.timeline[tracker.timeline.length - 1]?.endMs ?? 0;
+    if (totalTimeMs <= 0) return;
+
+    // Find the timed token at this char position
+    const token = tracker.tokens.find((t) => relativeIndex >= t.start && relativeIndex < t.end)
+      ?? tracker.tokens.reduce<(typeof tracker.tokens)[0] | null>((best, t) => t.start <= relativeIndex ? t : best, null);
+    if (!token) return;
+
+    const timedToken = tracker.timeline[token.index];
+    if (!timedToken) return;
+
+    const nextTimeMs = timedToken.startMs;
+    const nextProgress = clamp(nextTimeMs / totalTimeMs, 0, 1);
+    audio.currentTime = (durationMs * nextProgress) / 1000;
+
+    const nextCharIndex = relativeIndex;
+    const currentWord = Math.min(
+      playbackWindow.totalWords,
+      Math.max(0, countWords(session.text.slice(0, nextCharIndex))),
+    );
+
+    setSpokenCharacterIndex(nextCharIndex);
+    setPlaybackWindow((current) => ({
+      ...current,
+      elapsedMs: durationMs * nextProgress,
+      durationMs,
+      progress: nextProgress,
+      currentWord,
+    }));
+  };
+
   const seekPlayback = (progress: number) => {
     const audio = audioRef.current;
     const session = speechSession;
@@ -940,6 +1008,7 @@ export function useVoiceConsole({
     speakSelection,
     pauseOrResume,
     seekPlayback,
+    seekToCharIndex,
     cancelRequest: () => {
       debugVoice("cancel-request");
       requestAbortRef.current?.abort();
@@ -965,6 +1034,7 @@ export function useVoiceConsole({
         pageNumber: null,
         paragraphId: null,
       });
+      setCapabilities(await fetchVoxCapabilities().catch(() => ({ alignment: false })));
       await refreshProviders();
     },
   };

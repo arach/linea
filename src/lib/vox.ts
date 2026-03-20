@@ -47,6 +47,10 @@ export type VoxProviderStatus = {
   voiceDiscovery: boolean;
 };
 
+export type VoxCapabilities = {
+  alignment: boolean;
+};
+
 export type VoxCredentialStatus = {
   provider: VoxProviderId;
   configured: boolean;
@@ -77,6 +81,14 @@ export async function fetchVoxProviders() {
   );
 
   return payload.providers;
+}
+
+export async function fetchVoxCapabilities() {
+  const payload = await parseResponse<{ capabilities: VoxCapabilities }>(
+    await fetch("/api/vox/capabilities"),
+  );
+
+  return payload.capabilities;
 }
 
 export async function fetchVoxVoices(provider: VoxProviderId) {
@@ -122,4 +134,25 @@ export async function synthesizeVox(request: VoxSynthesisRequest, options?: { si
       body: JSON.stringify(request),
     }),
   );
+}
+
+export type VoxAlignedWord = {
+  word: string;
+  start: number;   // seconds
+  end: number;      // seconds
+};
+
+export type VoxAlignment = {
+  words: VoxAlignedWord[];
+  durationMs: number;
+};
+
+export async function alignVox(cacheKey: string, options?: { signal?: AbortSignal }): Promise<VoxAlignment | null> {
+  const result = await parseResponse<{ alignment: VoxAlignment | null }>(
+    await fetch(`/api/vox/align/${cacheKey}`, {
+      method: "POST",
+      signal: options?.signal,
+    }),
+  );
+  return result.alignment;
 }

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import type { VoxProviderId, VoxSynthesisRequest } from "../../src/lib/vox";
-import type { VoxCacheEntry } from "./types";
+import type { VoxAlignment, VoxCacheEntry } from "./types";
 
 const CACHE_ROOT = path.join(os.homedir(), ".linea", "vox-cache");
 
@@ -94,5 +94,12 @@ export class VoxCache {
 
   getAudioPath(cacheKey: string) {
     return this.audioPath(cacheKey);
+  }
+
+  async updateAlignment(cacheKey: string, alignment: VoxAlignment) {
+    const entry = await this.get(cacheKey);
+    if (!entry) return;
+    entry.alignment = alignment;
+    await fs.writeFile(this.metadataPath(cacheKey), JSON.stringify(entry, null, 2));
   }
 }

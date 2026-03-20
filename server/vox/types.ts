@@ -7,6 +7,18 @@ export type VoxProviderConfig = {
   instructions?: string;
 };
 
+export type VoxAlignedWord = {
+  word: string;
+  start: number;   // seconds
+  end: number;      // seconds
+};
+
+export type VoxAlignment = {
+  words: VoxAlignedWord[];
+  durationMs: number;
+  createdAt: string;
+};
+
 export type VoxCacheEntry = {
   cacheKey: string;
   provider: VoxProviderId;
@@ -17,6 +29,7 @@ export type VoxCacheEntry = {
   text: string;
   createdAt: string;
   source?: VoxSynthesisRequest["source"];
+  alignment?: VoxAlignment;
 };
 
 export interface VoxProvider {

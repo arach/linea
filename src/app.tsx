@@ -466,23 +466,21 @@ function renderDimSpans(paragraph: ReaderParagraph) {
   return parts;
 }
 
-function renderParagraphText(paragraph: ReaderParagraph, absoluteCharIndex: number | null) {
-  if (absoluteCharIndex === null) {
+function renderParagraphText(paragraph: ReaderParagraph, absoluteCharIndex: number | null, seekable = false) {
+  if (absoluteCharIndex === null && !seekable) {
     return renderDimSpans(paragraph);
   }
 
-  const relativeCharIndex = absoluteCharIndex - paragraph.start;
-  if (relativeCharIndex < 0 || relativeCharIndex > paragraph.text.length) {
-    return renderDimSpans(paragraph);
-  }
-
+  const relativeCharIndex = absoluteCharIndex !== null ? absoluteCharIndex - paragraph.start : -1;
   const tokens = tokenizeParagraph(paragraph.text);
-  const activeTokenIndex = findActiveTokenIndex(tokens, relativeCharIndex);
 
-  if (activeTokenIndex < 0) {
-    return renderDimSpans(paragraph);
+  if (absoluteCharIndex !== null) {
+    if (relativeCharIndex < 0 || relativeCharIndex > paragraph.text.length) {
+      if (!seekable) return renderDimSpans(paragraph);
+    }
   }
 
+  const activeTokenIndex = absoluteCharIndex !== null ? findActiveTokenIndex(tokens, relativeCharIndex) : -1;
   const dimSpans = paragraph.dimSpans ?? [];
 
   return tokens.map((token, index) => {
@@ -496,9 +494,11 @@ function renderParagraphText(paragraph: ReaderParagraph, absoluteCharIndex: numb
     return (
       <span
         key={`${paragraph.id}:${token.start}`}
+        data-char-offset={seekable ? token.start : undefined}
         className={
           isHighlighted ? "linea-word-highlight" : isDimmed ? "linea-dim-span" : undefined
         }
+        style={seekable && !isHighlighted ? { cursor: "pointer" } : undefined}
       >
         {token.value}
       </span>
@@ -1047,8 +1047,10 @@ function CommandBar({
   activePageNumber,
   activeParagraphId,
   hasSelection,
+  hasParagraphSelected,
   downloadUrl,
   onPlay,
+  onPlayParagraph,
   onCancelRequest,
   onPauseOrResume,
   onStop,
@@ -1070,8 +1072,10 @@ function CommandBar({
   activePageNumber: number | null;
   activeParagraphId: string | null;
   hasSelection: boolean;
+  hasParagraphSelected: boolean;
   downloadUrl: string | null;
   onPlay: () => void;
+  onPlayParagraph: () => void;
   onCancelRequest: () => void;
   onPauseOrResume: () => void;
   onStop: () => void;
@@ -1159,28 +1163,41 @@ function CommandBar({
         )}
 
         <div className="linea-command-actions">
-          {/* Unified play/pause/stop button */}
-          <button
-            type="button"
-            className="linea-btn-secondary linea-btn-icon"
-            onClick={isSpeaking ? onPauseOrResume : isPaused ? onPauseOrResume : onPlay}
-          >
-            {isSpeaking && !isPaused ? <Pause size={14} /> : isPaused ? <Play size={14} /> : <Play size={14} />}
-            {isSpeaking && !isPaused ? "Pause" : isPaused ? "Resume" : "Play"}
-          </button>
-          {(isSpeaking || isPaused) && (
-            <button
-              type="button"
-              className="linea-btn-secondary linea-btn-icon"
-              onClick={onStop}
-            >
-              <Square size={14} /> Stop
-            </button>
-          )}
-          {hasSelection && (
-            <button type="button" className="linea-btn-secondary linea-btn-icon" onClick={onReadSelection}>
-              <BookOpen size={14} /> Selection
-            </button>
+          {/* Play/pause — context-aware: selection > paragraph > page */}
+          {isSpeaking || isPaused ? (
+            <>
+              <button
+                type="button"
+                className="linea-btn-secondary linea-btn-icon"
+                onClick={onPauseOrResume}
+              >
+                {isSpeaking ? <Pause size={14} /> : <Play size={14} />}
+                {isSpeaking ? "Pause" : "Resume"}
+              </button>
+              <button
+                type="button"
+                className="linea-btn-secondary linea-btn-icon"
+                onClick={onStop}
+              >
+                <Square size={14} /> Stop
+              </button>
+            </>
+          ) : (
+            <>
+              {hasSelection ? (
+                <button type="button" className="linea-btn-secondary linea-btn-icon" onClick={onReadSelection}>
+                  <Play size={14} /> Read selection
+                </button>
+              ) : hasParagraphSelected ? (
+                <button type="button" className="linea-btn-secondary linea-btn-icon" onClick={onPlayParagraph}>
+                  <Play size={14} /> Read from here
+                </button>
+              ) : (
+                <button type="button" className="linea-btn-secondary linea-btn-icon" onClick={onPlay}>
+                  <Play size={14} /> Play page
+                </button>
+              )}
+            </>
           )}
           {isRequesting && (
             <button type="button" className="linea-btn-secondary linea-btn-icon" onClick={onCancelRequest}>
@@ -1465,7 +1482,7 @@ function Landing({
                   <span className="text-[9px] font-mono font-semibold uppercase tracking-[0.18em] text-accent">New: AI-Powered Context</span>
                 </div>
                 <h1 className="max-w-[14ch] font-serif text-[3.75rem] leading-[0.9] tracking-[-0.055em] text-ink md:text-[5.2rem] lg:text-[5.85rem]">
-                  A workspace for <span className="italic">deep reading.</span>
+                  A reading space for <span className="italic">deep focus.</span>
                 </h1>
                 <p className="max-w-[30rem] text-[1rem] leading-[1.9] text-ink/66 md:text-[1.06rem]">
                   Traditional PDF readers are built for forms and printing. Linea is built for{" "}
@@ -1621,9 +1638,12 @@ function ReaderPanel({
   activePageNumber,
   activeCharacterIndex,
   selectedParagraphId,
+  isAudioActive,
   onSelectPage,
   onSelectParagraph,
   onSelectText,
+  onSeekToChar,
+  onReadSelection,
 }: {
   document: ReaderDocument;
   page: ReaderPage;
@@ -1633,32 +1653,49 @@ function ReaderPanel({
   activePageNumber: number | null;
   activeCharacterIndex: number;
   selectedParagraphId: string | null;
+  isAudioActive: boolean;
   onSelectPage: (page: number) => void;
   onSelectParagraph: (paragraphId: string | null) => void;
   onSelectText: (selection: { text: string; paragraphId: string | null } | null) => void;
+  onSeekToChar: (charIndex: number) => void;
+  onReadSelection: () => void;
 }) {
   const articleRef = useRef<HTMLElement | null>(null);
   const font = readerFonts[settings.font];
+  const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
 
   useEffect(() => {
     onSelectText(null);
     onSelectParagraph(null);
+    setSelectionRect(null);
   }, [onSelectParagraph, onSelectText, page.pageNumber]);
 
   const handleSelection = () => {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || !articleRef.current) {
       onSelectText(null);
+      setSelectionRect(null);
       return;
     }
     const text = sel.toString().trim();
-    if (!text) { onSelectText(null); return; }
+    if (!text) { onSelectText(null); setSelectionRect(null); return; }
     const anchor = sel.anchorNode;
     const el = anchor instanceof Element ? anchor : anchor?.parentElement ?? null;
-    if (!el || !articleRef.current.contains(el)) { onSelectText(null); return; }
+    if (!el || !articleRef.current.contains(el)) { onSelectText(null); setSelectionRect(null); return; }
     const pEl = el.closest<HTMLElement>("[data-paragraph-id]");
     onSelectText({ text, paragraphId: pEl?.dataset.paragraphId ?? null });
+    setSelectionRect(sel.getRangeAt(0).getBoundingClientRect());
   };
+
+  // Clear popover when browser selection is dismissed
+  useEffect(() => {
+    const onSelChange = () => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed) setSelectionRect(null);
+    };
+    window.document.addEventListener("selectionchange", onSelChange);
+    return () => window.document.removeEventListener("selectionchange", onSelChange);
+  }, []);
 
   return (
     <article className="linea-reader">
@@ -1681,13 +1718,31 @@ function ReaderPanel({
           {page.paragraphs
             .filter((p) => p.text.trim() !== page.title.trim())
             .map((paragraph) => (
-            <button
+            <div
               key={paragraph.id}
-              type="button"
+              role="button"
+              tabIndex={0}
               data-paragraph-id={paragraph.id}
-              onClick={() => {
+              onClick={(e) => {
                 const sel = window.getSelection()?.toString().trim();
-                if (!sel) {
+                if (sel) return;
+
+                if (isAudioActive && activePageNumber === page.pageNumber) {
+                  const target = e.target as HTMLElement;
+                  const charOffset = target.dataset.charOffset;
+                  if (charOffset != null) {
+                    onSeekToChar(paragraph.start + Number(charOffset));
+                  } else {
+                    onSeekToChar(paragraph.start);
+                  }
+                  return;
+                }
+
+                onSelectParagraph(selectedParagraphId === paragraph.id ? null : paragraph.id);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
                   onSelectParagraph(selectedParagraphId === paragraph.id ? null : paragraph.id);
                 }
               }}
@@ -1699,15 +1754,39 @@ function ReaderPanel({
                   activeParagraphId === paragraph.id && activePageNumber === page.pageNumber
                     ? activeCharacterIndex
                     : null,
+                  isAudioActive && activePageNumber === page.pageNumber,
                 )}
               </span>
-            </button>
+            </div>
           ))}
         </div>
       ) : (
         <div className="linea-status" style={{ marginTop: 20 }}>
           No extractable text on this page. This usually means the page is image-based or needs OCR.
         </div>
+      )}
+
+      {selectionRect && createPortal(
+        <div
+          className="linea-selection-popover"
+          style={{
+            top: `${selectionRect.top - 42}px`,
+            left: `${selectionRect.left + selectionRect.width / 2}px`,
+          }}
+        >
+          <button
+            type="button"
+            className="linea-selection-popover-btn"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onReadSelection();
+              setSelectionRect(null);
+            }}
+          >
+            <Play size={12} /> Read aloud
+          </button>
+        </div>,
+        window.document.body,
       )}
 
       <div className="linea-reader-nav">
@@ -1971,8 +2050,10 @@ export function App({ initialDocument }: AppProps) {
                 activePageNumber={voice.activePageNumber}
                 activeParagraphId={voice.activeParagraphId}
                 hasSelection={Boolean(selectedPassage?.text)}
+                hasParagraphSelected={Boolean(selectedParagraph)}
                 downloadUrl={voice.activity.audioUrl}
                 onPlay={handlePlayPage}
+                onPlayParagraph={handlePlaySelectedParagraph}
                 onCancelRequest={voice.cancelRequest}
                 onPauseOrResume={voice.pauseOrResume}
                 onStop={voice.stopSpeaking}
@@ -1994,9 +2075,12 @@ export function App({ initialDocument }: AppProps) {
                 activePageNumber={voice.activePageNumber}
                 activeCharacterIndex={voice.activeCharacterIndex}
                 selectedParagraphId={selectedParagraphId}
+                isAudioActive={voice.isSpeaking || voice.isPaused}
                 onSelectPage={setSelectedPage}
                 onSelectParagraph={setSelectedParagraphId}
                 onSelectText={setSelectedPassage}
+                onSeekToChar={voice.seekToCharIndex}
+                onReadSelection={handleReadSelection}
               />
             </>
           )}

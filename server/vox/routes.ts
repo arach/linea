@@ -24,6 +24,12 @@ export function createVoxRouter() {
     });
   });
 
+  router.get("/capabilities", async (_req, res) => {
+    res.json({
+      capabilities: await vox.getCapabilities(),
+    });
+  });
+
   router.get("/providers/:provider/voices", async (req, res) => {
     try {
       const provider = parseProviderId(req.params.provider);
@@ -132,6 +138,34 @@ export function createVoxRouter() {
     res.setHeader("Content-Type", "audio/mpeg");
     res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
     res.end(audio);
+  });
+
+  // Align audio: run Whisper ASR to get word-level timestamps
+  router.post("/align/:cacheKey", async (req, res) => {
+    try {
+      const alignment = await vox.align(req.params.cacheKey);
+      res.json({ alignment });
+    } catch (error) {
+      console.error("[linea:vox] align-failed", {
+        cacheKey: req.params.cacheKey,
+        error: error instanceof Error ? error.message : "Alignment failed",
+      });
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Alignment failed",
+      });
+    }
+  });
+
+  // Get cached alignment (no Whisper call)
+  router.get("/align/:cacheKey", async (req, res) => {
+    try {
+      const alignment = await vox.getAlignment(req.params.cacheKey);
+      res.json({ alignment });
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Failed to get alignment",
+      });
+    }
   });
 
   return router;

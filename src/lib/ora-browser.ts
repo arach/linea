@@ -194,6 +194,93 @@ export class OraPlaybackTracker {
     });
   }
 
+  /**
+   * Apply word-level alignment from ASR (Whisper).
+   * Maps ASR words to text tokens by matching word text, then assigns
+   * real timestamps. Tokens without a match get interpolated.
+   */
+  applyAlignment(words: Array<{ word: string; start: number; end: number }>): void {
+    if (words.length === 0 || this.tokens.length === 0) return;
+
+    // Match ASR words to tokens greedily by normalized text
+    const normalize = (s: string) => s.replace(/[^\p{L}\p{N}]/gu, "").toLowerCase();
+    let tokenIdx = 0;
+
+    const mapped = new Map<number, { startMs: number; endMs: number }>();
+
+    for (const w of words) {
+      const wNorm = normalize(w.word);
+      if (!wNorm) continue;
+
+      // Search forward in tokens for a match
+      let found = false;
+      for (let i = tokenIdx; i < this.tokens.length && i < tokenIdx + 5; i++) {
+        if (!this.tokens[i].isWord) continue;
+        const tNorm = normalize(this.tokens[i].text);
+        if (tNorm === wNorm || tNorm.startsWith(wNorm) || wNorm.startsWith(tNorm)) {
+          mapped.set(i, { startMs: w.start * 1000, endMs: w.end * 1000 });
+          tokenIdx = i + 1;
+          found = true;
+          break;
+        }
+      }
+
+      // If not found nearby, try a wider search
+      if (!found) {
+        for (let i = tokenIdx; i < Math.min(tokenIdx + 15, this.tokens.length); i++) {
+          if (!this.tokens[i].isWord) continue;
+          const tNorm = normalize(this.tokens[i].text);
+          if (tNorm === wNorm) {
+            mapped.set(i, { startMs: w.start * 1000, endMs: w.end * 1000 });
+            tokenIdx = i + 1;
+            break;
+          }
+        }
+      }
+    }
+
+    if (mapped.size === 0) return;
+
+    // Build the timeline with real timestamps where available, interpolated elsewhere
+    const newTimeline: OraTimedToken[] = [];
+    const entries = [...mapped.entries()].sort((a, b) => a[0] - b[0]);
+
+    let prevEndMs = 0;
+    let entryIdx = 0;
+
+    for (let i = 0; i < this.tokens.length; i++) {
+      const token = this.tokens[i];
+      const real = mapped.get(i);
+
+      if (real) {
+        newTimeline.push({ ...token, startMs: real.startMs, endMs: real.endMs, weightMs: real.endMs - real.startMs });
+        prevEndMs = real.endMs;
+        entryIdx = entries.findIndex(([idx]) => idx === i) + 1;
+      } else {
+        // Interpolate between previous known and next known
+        const nextEntry = entries[entryIdx];
+        const nextStartMs = nextEntry ? nextEntry[1].startMs : (this.timeline[this.timeline.length - 1]?.endMs ?? prevEndMs + 100);
+
+        // Count unmapped tokens until next mapped one
+        let unmappedCount = 0;
+        for (let j = i; j < this.tokens.length; j++) {
+          if (mapped.has(j)) break;
+          unmappedCount++;
+        }
+
+        const gap = nextStartMs - prevEndMs;
+        const sliceMs = unmappedCount > 0 ? gap / unmappedCount : gap;
+        const startMs = prevEndMs;
+        const endMs = startMs + sliceMs;
+
+        newTimeline.push({ ...token, startMs, endMs, weightMs: sliceMs });
+        prevEndMs = endMs;
+      }
+    }
+
+    this.timeline = newTimeline;
+  }
+
   reset(): OraPlaybackSnapshot {
     this.currentTimeMs = 0;
     this.currentCharIndex = 0;

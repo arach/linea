@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+
 import type {
   VoxVoice,
   VoxCredentialStatus,
@@ -14,6 +16,7 @@ import {
   setProviderApiKey,
 } from "./config";
 import { createVoxOraRuntime } from "./ora";
+import type { VoxAlignment, VoxAlignedWord } from "./types";
 
 type VoxOraRuntime = {
   listProviders(): VoxProviderId[];
@@ -86,6 +89,12 @@ export class VoxService {
         };
       }),
     );
+  }
+
+  async getCapabilities() {
+    return {
+      alignment: await this.canAlign(),
+    };
   }
 
   async listVoices(provider: VoxProviderId): Promise<VoxVoice[]> {
@@ -250,5 +259,146 @@ export class VoxService {
       });
     }
     return cachedEntry?.filePath ?? null;
+  }
+
+  async getAlignment(cacheKey: string): Promise<VoxAlignment | null> {
+    const entry = await this.cache.get(cacheKey);
+    return entry?.alignment ?? null;
+  }
+
+  async align(cacheKey: string): Promise<VoxAlignment | null> {
+    const entry = await this.cache.get(cacheKey);
+    if (!entry) {
+      throw new Error("Audio not found in cache");
+    }
+
+    // Return cached alignment if it exists
+    if (entry.alignment) {
+      console.info("[linea:vox] alignment-cache-hit", { cacheKey });
+      return entry.alignment;
+    }
+
+    console.info("[linea:vox] alignment-start", {
+      cacheKey,
+      textLength: entry.text.length,
+    });
+
+    if (!(await this.canAlign())) {
+      console.info("[linea:vox] alignment-skipped", {
+        cacheKey,
+        reason: "no-backend",
+      });
+      return null;
+    }
+
+    // Try Vox local transcription first, fall back to Whisper API
+    let words: VoxAlignedWord[];
+    let durationMs: number;
+
+    const voxResult = await this.alignWithVox(entry.filePath);
+    if (voxResult) {
+      words = voxResult.words;
+      durationMs = voxResult.durationMs;
+      console.info("[linea:vox] alignment-source", { source: "vox-local" });
+    } else {
+      const whisperResult = await this.alignWithWhisper(entry.filePath);
+      words = whisperResult.words;
+      durationMs = whisperResult.durationMs;
+      console.info("[linea:vox] alignment-source", { source: "whisper-api" });
+    }
+
+    const alignment: VoxAlignment = {
+      words,
+      durationMs,
+      createdAt: new Date().toISOString(),
+    };
+
+    await this.cache.updateAlignment(cacheKey, alignment);
+
+    console.info("[linea:vox] alignment-done", {
+      cacheKey,
+      wordCount: words.length,
+      durationMs,
+    });
+
+    return alignment;
+  }
+
+  private async canAlign() {
+    if (await this.hasLocalVox()) {
+      return true;
+    }
+
+    return Boolean(await getProviderApiKey("openai"));
+  }
+
+  private async hasLocalVox() {
+    try {
+      await import("@vox/client");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async alignWithVox(filePath: string): Promise<{ words: VoxAlignedWord[]; durationMs: number } | null> {
+    try {
+      const { VoxClient } = await import("@vox/client");
+      const client = new VoxClient({ clientId: "linea" });
+      await client.connect();
+
+      try {
+        const result = await client.transcribeFile(filePath);
+        const words: VoxAlignedWord[] = result.words
+          .filter((w) => w.word.trim().length > 0)
+          .map((w) => ({ word: w.word, start: w.start, end: w.end }));
+        const durationMs = (result.metrics?.audioDurationMs ?? 0);
+        return { words, durationMs };
+      } finally {
+        client.disconnect();
+      }
+    } catch (err) {
+      console.info("[linea:vox] vox-local-unavailable", {
+        error: err instanceof Error ? err.message : "unknown",
+      });
+      return null;
+    }
+  }
+
+  private async alignWithWhisper(filePath: string): Promise<{ words: VoxAlignedWord[]; durationMs: number }> {
+    const apiKey = await getProviderApiKey("openai");
+    if (!apiKey) {
+      throw new Error("No alignment backend available (Vox offline, no OpenAI key)");
+    }
+
+    const audioBuffer = await fs.readFile(filePath);
+    const blob = new Blob([audioBuffer], { type: "audio/mpeg" });
+
+    const formData = new FormData();
+    formData.append("file", blob, "audio.mp3");
+    formData.append("model", "whisper-1");
+    formData.append("response_format", "verbose_json");
+    formData.append("timestamp_granularities[]", "word");
+
+    const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "");
+      throw new Error(`Whisper transcription failed (${response.status}): ${errorText}`);
+    }
+
+    const result = await response.json() as {
+      duration?: number;
+      words?: Array<{ word: string; start: number; end: number }>;
+    };
+
+    return {
+      words: (result.words ?? []).map((w) => ({ word: w.word, start: w.start, end: w.end })),
+      durationMs: (result.duration ?? 0) * 1000,
+    };
   }
 }
