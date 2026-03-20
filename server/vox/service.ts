@@ -291,21 +291,10 @@ export class VoxService {
       return null;
     }
 
-    // Try Vox local transcription first, fall back to Whisper API
-    let words: VoxAlignedWord[];
-    let durationMs: number;
-
-    const voxResult = await this.alignWithVox(entry.filePath);
-    if (voxResult) {
-      words = voxResult.words;
-      durationMs = voxResult.durationMs;
-      console.info("[linea:vox] alignment-source", { source: "vox-local" });
-    } else {
-      const whisperResult = await this.alignWithWhisper(entry.filePath);
-      words = whisperResult.words;
-      durationMs = whisperResult.durationMs;
-      console.info("[linea:vox] alignment-source", { source: "whisper-api" });
-    }
+    const whisperResult = await this.alignWithWhisper(entry.filePath);
+    const words = whisperResult.words;
+    const durationMs = whisperResult.durationMs;
+    console.info("[linea:vox] alignment-source", { source: "whisper-api" });
 
     const alignment: VoxAlignment = {
       words,
@@ -325,44 +314,7 @@ export class VoxService {
   }
 
   private async canAlign() {
-    if (await this.hasLocalVox()) {
-      return true;
-    }
-
     return Boolean(await getProviderApiKey("openai"));
-  }
-
-  private async hasLocalVox() {
-    try {
-      await import("@vox/client");
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  private async alignWithVox(filePath: string): Promise<{ words: VoxAlignedWord[]; durationMs: number } | null> {
-    try {
-      const { VoxClient } = await import("@vox/client");
-      const client = new VoxClient({ clientId: "linea" });
-      await client.connect();
-
-      try {
-        const result = await client.transcribeFile(filePath);
-        const words: VoxAlignedWord[] = result.words
-          .filter((w) => w.word.trim().length > 0)
-          .map((w) => ({ word: w.word, start: w.start, end: w.end }));
-        const durationMs = (result.metrics?.audioDurationMs ?? 0);
-        return { words, durationMs };
-      } finally {
-        client.disconnect();
-      }
-    } catch (err) {
-      console.info("[linea:vox] vox-local-unavailable", {
-        error: err instanceof Error ? err.message : "unknown",
-      });
-      return null;
-    }
   }
 
   private async alignWithWhisper(filePath: string): Promise<{ words: VoxAlignedWord[]; durationMs: number }> {

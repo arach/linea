@@ -1,59 +1,37 @@
-export type VoxCompanionCapabilities = {
-  running: boolean;
-  version: string;
-  features?: {
-    alignment?: boolean;
-    local_asr?: boolean;
-    streaming_progress?: boolean;
-  };
-  backends?: Record<string, boolean>;
-  models?: Array<{
-    id: string;
-    name: string;
-    backend: string;
-    available: boolean;
-    installed?: boolean;
-    preloaded?: boolean;
-  }>;
-};
+import {
+  createVoxdClient,
+  type AlignmentResult,
+  type JobMetadata,
+  type VoxCapabilities,
+} from "@voxd/client";
+
+export type VoxCompanionCapabilities = VoxCapabilities;
 
 export type VoxCompanionRuntime = {
   baseUrl: string;
   capabilities: VoxCompanionCapabilities;
 };
 
-export type VoxCompanionAlignment = {
-  words: Array<{
-    word: string;
-    start: number;
-    end: number;
-  }>;
-  durationMs: number;
-};
+export type VoxCompanionAlignment = AlignmentResult;
 
 const LOCAL_PORT_CANDIDATES = [43115, 43116, 43117, 43118, 43119, 43120];
 const CACHE_KEY = "linea:vox-companion-base-url";
 
-async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit) {
-  const response = await fetch(input, init);
-  if (!response.ok) {
-    throw new Error(`Request failed (${response.status})`);
-  }
-
-  return (await response.json()) as T;
-}
-
 async function probeBaseUrl(baseUrl: string): Promise<VoxCompanionRuntime | null> {
   try {
-    const health = await fetchJson<{ ok: boolean; service?: string; version?: string }>(
-      `${baseUrl}/health`,
-    );
+    const client = createVoxdClient({ baseUrl, probeTimeout: 1500, pollInterval: 1000 });
+    const isAvailable = await client.probe();
 
+    if (!isAvailable) {
+      return null;
+    }
+
+    const health = await client.health();
     if (!health.ok || health.service !== "vox-companion") {
       return null;
     }
 
-    const capabilities = await fetchJson<VoxCompanionCapabilities>(`${baseUrl}/capabilities`);
+    const capabilities = await client.capabilities();
     if (!capabilities.running) {
       return null;
     }
@@ -129,55 +107,41 @@ export async function alignWithVoxCompanion(
     pollIntervalMs?: number;
   },
 ) {
-  const create = await fetchJson<{ accepted: boolean; jobId: string }>(`${runtime.baseUrl}/jobs`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    signal: options?.signal,
-    body: JSON.stringify({
-      type: "alignment",
-      source: {
-        audioUrl: input.audioUrl,
-      },
-      metadata: {
-        cacheKey: input.cacheKey ?? null,
-        pageNumber: input.pageNumber ?? null,
-        paragraphId: input.paragraphId ?? null,
-      },
-    }),
+  const client = createVoxdClient({
+    baseUrl: runtime.baseUrl,
+    pollInterval: options?.pollIntervalMs ?? 1000,
   });
 
-  const startedAt = Date.now();
+  const metadata: JobMetadata = {
+    cacheKey: input.cacheKey ?? undefined,
+    pageNumber: input.pageNumber ?? undefined,
+    paragraphId: input.paragraphId ?? undefined,
+  };
+
   const timeoutMs = options?.timeoutMs ?? 20000;
-  const pollIntervalMs = options?.pollIntervalMs ?? 1000;
 
-  while (Date.now() - startedAt < timeoutMs) {
-    if (options?.signal?.aborted) {
-      throw new DOMException("Aborted", "AbortError");
-    }
+  const alignmentPromise = client.align({
+    source: {
+      audioUrl: input.audioUrl,
+    },
+    metadata,
+  });
 
-    const status = await fetchJson<{
-      status: string;
-      error?: string;
-      result?: {
-        alignment?: VoxCompanionAlignment;
-      };
-      alignment?: VoxCompanionAlignment;
-    }>(`${runtime.baseUrl}/jobs/${create.jobId}`, {
-      signal: options?.signal,
-    });
+  return await Promise.race([
+    alignmentPromise,
+    new Promise<null>((resolve, reject) => {
+      const timeoutId = window.setTimeout(() => resolve(null), timeoutMs);
 
-    if (status.status === "completed") {
-      return status.result?.alignment ?? status.alignment ?? null;
-    }
-
-    if (status.status === "failed") {
-      throw new Error(status.error ?? "Companion alignment failed");
-    }
-
-    await new Promise((resolve) => window.setTimeout(resolve, pollIntervalMs));
-  }
-
-  return null;
+      if (options?.signal) {
+        options.signal.addEventListener(
+          "abort",
+          () => {
+            window.clearTimeout(timeoutId);
+            reject(new DOMException("Aborted", "AbortError"));
+          },
+          { once: true },
+        );
+      }
+    }),
+  ]);
 }

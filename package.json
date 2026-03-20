@@ -20,7 +20,7 @@
     "@fontsource/space-grotesk": "^5.2.8",
     "@radix-ui/react-scroll-area": "^1.2.10",
     "@radix-ui/react-slot": "^1.2.4",
-    "@vox/client": "link:../vox/packages/client",
+    "@voxd/client": "0.2.0",
     "agentation": "^2.3.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
