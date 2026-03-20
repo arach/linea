@@ -278,21 +278,6 @@ export function useVoiceConsole({
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-
-    void (async () => {
-      const runtime = await discoverVoxCompanion();
-      if (!cancelled) {
-        setLocalRuntime(runtime);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     if (!selectedProvider) return;
     if (voicesByProvider[selectedProvider]) return;
 
@@ -502,6 +487,9 @@ export function useVoiceConsole({
     });
 
     try {
+      const runtime = await discoverVoxCompanion();
+      setLocalRuntime(runtime);
+
       const abortController = new AbortController();
       requestAbortRef.current = abortController;
       const response = await synthesizeVox({
@@ -597,13 +585,13 @@ export function useVoiceConsole({
           paragraphId: session.paragraphId,
         });
 
-        if (localRuntime?.capabilities.features?.alignment || capabilities.alignment) {
+        if (runtime?.capabilities.features?.alignment || capabilities.alignment) {
           const audioUrl = response.audioUrl.startsWith("http")
             ? response.audioUrl
             : `${window.location.origin}${response.audioUrl}`;
 
-          const alignPromise = localRuntime
-            ? alignWithVoxCompanion(localRuntime, {
+          const alignPromise = runtime
+            ? alignWithVoxCompanion(runtime, {
                 audioUrl,
                 cacheKey: response.cacheKey,
                 pageNumber: session.pageNumber,
@@ -1076,7 +1064,6 @@ export function useVoiceConsole({
         paragraphId: null,
       });
       setCapabilities(await fetchVoxCapabilities().catch(() => ({ alignment: false })));
-      setLocalRuntime(await discoverVoxCompanion());
       await refreshProviders();
     },
   };
