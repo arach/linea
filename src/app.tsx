@@ -25,6 +25,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { RedirectToSignIn } from "@clerk/react";
 import { motion, AnimatePresence } from "motion/react";
 import { createPortal } from "react-dom";
 import {
@@ -77,6 +78,30 @@ import { formatCount, formatMinutes } from "@/lib/utils";
 type AppProps = {
   initialDocument: ReaderDocument | null;
 };
+
+function currentUrl() {
+  return typeof window !== "undefined" ? window.location.href : "/";
+}
+
+function ManagedAuthRedirect() {
+  const redirectUrl = currentUrl();
+
+  return (
+    <div className="linea-page linea-bg-document linea-frame">
+      <RedirectToSignIn
+        forceRedirectUrl={redirectUrl}
+        fallbackRedirectUrl={redirectUrl}
+      />
+      <div className="linea-loading-screen">
+        <Lock size={18} />
+        <h2>Redirecting to sign in</h2>
+        <p className="linea-auth-copy">
+          Shared voice on this deployment requires a signed-in Clerk account.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 function DevInspectorSidebar() {
   const [open, setOpen] = useState(false);
@@ -2187,6 +2212,11 @@ export function App({ initialDocument }: AppProps) {
     [document, selectedPage],
   );
   const managedAccess = useLineaAccessSnapshot();
+  const shouldRedirectToSignIn =
+    !managedAccess.loading &&
+    managedAccess.snapshot.enabled &&
+    managedAccess.snapshot.clerkConfigured &&
+    managedAccess.snapshot.access.status === "signed-out";
 
   const voice = useVoiceConsole({
     pages: document?.pages ?? [],
@@ -2506,6 +2536,10 @@ export function App({ initialDocument }: AppProps) {
         ) : null}
       </div>
     );
+  }
+
+  if (shouldRedirectToSignIn) {
+    return <ManagedAuthRedirect />;
   }
 
   /* ── no document ── */

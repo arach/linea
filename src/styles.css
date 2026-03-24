@@ -2660,6 +2660,14 @@ textarea {
   margin: 0;
 }
 
+.linea-auth-copy {
+  max-width: 32rem;
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: var(--text-2);
+}
+
 .linea-loading-bar {
   width: 240px;
   height: 4px;

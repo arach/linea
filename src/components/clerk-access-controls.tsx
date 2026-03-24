@@ -60,7 +60,11 @@ export function ClerkAccessControls({
   }
 
   return (
-    <SignInButton>
+    <SignInButton
+      mode="redirect"
+      forceRedirectUrl={currentUrl()}
+      fallbackRedirectUrl={currentUrl()}
+    >
       <button type="button" className={buttonClassName}>
         Sign in
       </button>
