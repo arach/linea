@@ -70,6 +70,7 @@ import {
 } from "@/lib/dev-inspector";
 import { ClerkAccessControls } from "@/components/clerk-access-controls";
 import { ManagedAccessPanel } from "@/components/managed-access-panel";
+import type { LineaManagedAccessSnapshot } from "@/lib/linea-access";
 import { useLineaAccessSnapshot } from "@/lib/use-linea-access";
 import { formatCount, formatMinutes } from "@/lib/utils";
 
@@ -100,6 +101,228 @@ function ManagedAuthRedirect() {
         </p>
       </div>
     </div>
+  );
+}
+
+function formatLandingQuota(limit: number | null, unit: "chars" | "seconds") {
+  if (limit == null) {
+    return "Unlimited";
+  }
+
+  if (unit === "chars") {
+    return `${formatCount(limit)} chars`;
+  }
+
+  return formatMinutes(Math.max(1, Math.round(limit / 60)));
+}
+
+function getLandingWelcomeHeadline(snapshot: LineaManagedAccessSnapshot) {
+  if (snapshot.access.status === "blocked") {
+    return "You made it in. Shared voice still needs approval.";
+  }
+
+  if (snapshot.access.role === "owner") {
+    return "Your shared reading space is ready.";
+  }
+
+  if (snapshot.access.role === "gifted") {
+    return "Shared voice is unlocked for this account.";
+  }
+
+  return "Welcome back to Linea.";
+}
+
+function getLandingWelcomeBody(snapshot: LineaManagedAccessSnapshot) {
+  const email = snapshot.user?.email ?? "this account";
+
+  if (snapshot.access.status === "blocked") {
+    return `${email} is signed in, but it is not on the managed-access list yet. You can still open a document and explore the reader while you sort out access.`;
+  }
+
+  return `${email} can use the server-managed voice tools on this deployment. Open a document and Linea will keep the provider keys on the server side.`;
+}
+
+function LandingWelcomeOverlay({
+  snapshot,
+  onDismiss,
+  onOpenPdf,
+  onOpenDemo,
+}: {
+  snapshot: LineaManagedAccessSnapshot;
+  onDismiss: () => void;
+  onOpenPdf: () => void;
+  onOpenDemo: () => void;
+}) {
+  const isBlocked = snapshot.access.status === "blocked";
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-40 bg-[#f6efe6]/78 backdrop-blur-md"
+    >
+      <div className="flex min-h-screen items-start justify-center px-5 pb-10 pt-24 sm:px-8">
+        <motion.div
+          initial={{ opacity: 0, y: 28, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 18, scale: 0.98 }}
+          transition={{ duration: 0.28, ease: "easeOut" }}
+          className="relative w-full max-w-[980px] overflow-hidden rounded-[34px] border border-black/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,243,236,0.96))] shadow-[0_40px_120px_-60px_rgba(0,0,0,0.4)]"
+        >
+            <div className="absolute inset-x-0 top-0 h-28 bg-[radial-gradient(circle_at_top,rgba(212,115,74,0.18),transparent_72%)]" />
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="absolute right-5 top-5 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-black/8 bg-white/70 text-ink/56 transition-colors hover:bg-white hover:text-ink"
+              aria-label="Dismiss welcome"
+            >
+              <X size={16} />
+            </button>
+
+            <div className="grid gap-8 px-6 pb-6 pt-16 sm:px-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)] lg:gap-10 lg:px-10 lg:pb-10">
+              <div className="space-y-7">
+                <div className="space-y-4">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-accent/12 bg-accent/8 px-3 py-1.5">
+                    <Sparkles size={12} className="text-accent" />
+                    <span className="text-[10px] font-mono font-semibold uppercase tracking-[0.18em] text-accent">
+                      {isBlocked ? "Access review" : "Signed in"}
+                    </span>
+                  </div>
+                  <div className="space-y-3">
+                    <h2 className="max-w-[16ch] font-serif text-[2.4rem] leading-[0.94] tracking-[-0.05em] text-ink sm:text-[3.1rem]">
+                      {getLandingWelcomeHeadline(snapshot)}
+                    </h2>
+                    <p className="max-w-[34rem] text-[0.98rem] leading-[1.85] text-ink/66">
+                      {getLandingWelcomeBody(snapshot)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  <div className="rounded-[22px] border border-black/8 bg-white/78 px-4 py-4 shadow-[0_20px_40px_-36px_rgba(0,0,0,0.35)]">
+                    <div className="mb-3 flex items-center gap-2 text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/52">
+                      <AudioLines size={14} className="text-accent" />
+                      Managed voice
+                    </div>
+                    <div className="text-[1.02rem] font-medium text-ink">
+                      {snapshot.access.managedVoice && !isBlocked ? "Enabled" : "Not yet enabled"}
+                    </div>
+                    <p className="mt-2 text-[13px] leading-6 text-ink/56">
+                      {isBlocked
+                        ? "You are signed in, but this email still needs shared-access approval."
+                        : "Speech requests run through the server so provider keys stay off the client."}
+                    </p>
+                  </div>
+
+                  <div className="rounded-[22px] border border-black/8 bg-white/78 px-4 py-4 shadow-[0_20px_40px_-36px_rgba(0,0,0,0.35)]">
+                    <div className="mb-3 flex items-center gap-2 text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/52">
+                      <Quote size={14} className="text-accent" />
+                      TTS quota
+                    </div>
+                    <div className="text-[1.02rem] font-medium text-ink">
+                      {formatLandingQuota(snapshot.access.quotas.ttsChars.limit, "chars")}
+                    </div>
+                    <p className="mt-2 text-[13px] leading-6 text-ink/56">
+                      {formatCount(snapshot.access.quotas.ttsChars.used)} used this window.
+                    </p>
+                  </div>
+
+                  <div className="rounded-[22px] border border-black/8 bg-white/78 px-4 py-4 shadow-[0_20px_40px_-36px_rgba(0,0,0,0.35)] sm:col-span-2 xl:col-span-1">
+                    <div className="mb-3 flex items-center gap-2 text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/52">
+                      <BookOpen size={14} className="text-accent" />
+                      Transcription
+                    </div>
+                    <div className="text-[1.02rem] font-medium text-ink">
+                      {formatLandingQuota(snapshot.access.quotas.transcriptionSeconds.limit, "seconds")}
+                    </div>
+                    <p className="mt-2 text-[13px] leading-6 text-ink/56">
+                      {snapshot.access.quotas.window.label} · {snapshot.access.meteringMode} metering
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={onOpenPdf}
+                    className="group flex items-center justify-center gap-2 rounded-full bg-accent px-5 py-3 text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-white shadow-xl shadow-accent/20 transition-all hover:brightness-110 sm:px-6"
+                  >
+                    <Upload size={14} className="transition-transform group-hover:-translate-y-0.5" />
+                    Open a PDF
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onOpenDemo}
+                    className="flex items-center justify-center gap-2 rounded-full border border-ink/18 bg-white/72 px-5 py-3 text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-ink transition-colors hover:bg-white sm:px-6"
+                  >
+                    <ArrowRight size={14} />
+                    View demo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onDismiss}
+                    className="flex items-center justify-center gap-2 rounded-full px-5 py-3 text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-ink/56 transition-colors hover:text-ink sm:px-6"
+                  >
+                    Maybe later
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-[28px] border border-black/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.84),rgba(247,240,233,0.88))] p-5 shadow-[0_30px_80px_-64px_rgba(0,0,0,0.45)]">
+                <div className="space-y-4">
+                  <div>
+                    <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/46">
+                      Signed in as
+                    </div>
+                    <div className="mt-2 text-[1.05rem] font-medium text-ink">
+                      {snapshot.user?.email ?? "Signed-in account"}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 rounded-[22px] border border-black/8 bg-white/80 p-4">
+                    <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/46">
+                      What happens next
+                    </div>
+                    <div className="space-y-3">
+                      <div className="flex items-start gap-3">
+                        <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px] bg-accent/12 text-accent">
+                          <BookOpen size={13} />
+                        </div>
+                        <p className="text-[13px] leading-6 text-ink/62">
+                          Pick a PDF or open the demo reader from this landing page.
+                        </p>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px] bg-accent/12 text-accent">
+                          <AudioLines size={13} />
+                        </div>
+                        <p className="text-[13px] leading-6 text-ink/62">
+                          Voice and alignment requests use the shared server-side configuration attached to this deployment.
+                        </p>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px] bg-accent/12 text-accent">
+                          <Lock size={13} />
+                        </div>
+                        <p className="text-[13px] leading-6 text-ink/62">
+                          {isBlocked
+                            ? "This account is authenticated, but managed entitlements still need to be granted."
+                            : "Your provider keys stay on the server, not in the browser."}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end">
+                    <ClerkAccessControls snapshot={snapshot} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </motion.div>
   );
 }
 
@@ -1671,6 +1894,7 @@ function Landing({
   error,
   theme,
   toggleTheme,
+  accessSnapshot,
 }: {
   onFile: (file: File) => void;
   onOpenDemo: () => void;
@@ -1679,9 +1903,23 @@ function Landing({
   error: string;
   theme: string;
   toggleTheme: () => void;
+  accessSnapshot: LineaManagedAccessSnapshot;
 }) {
   const [isDragging, setIsDragging] = useState(false);
+  const [welcomeDismissed, setWelcomeDismissed] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const welcomeStorageKey = accessSnapshot.user
+    ? `linea:landing-welcome:${accessSnapshot.user.id}:${accessSnapshot.access.status}:${accessSnapshot.access.role}`
+    : null;
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !welcomeStorageKey) {
+      setWelcomeDismissed(false);
+      return;
+    }
+
+    setWelcomeDismissed(window.sessionStorage.getItem(welcomeStorageKey) === "1");
+  }, [welcomeStorageKey]);
 
   useEffect(() => {
     const handleDragOver = (e: DragEvent) => {
@@ -1710,8 +1948,39 @@ function Landing({
     };
   }, [onFile]);
 
+  const dismissWelcome = useCallback(() => {
+    setWelcomeDismissed(true);
+
+    if (typeof window !== "undefined" && welcomeStorageKey) {
+      window.sessionStorage.setItem(welcomeStorageKey, "1");
+    }
+  }, [welcomeStorageKey]);
+
+  const shouldShowWelcome =
+    !loading &&
+    accessSnapshot.enabled &&
+    Boolean(accessSnapshot.user) &&
+    !welcomeDismissed;
+
   return (
     <div className="min-h-screen bg-bg selection:bg-accent/20 selection:text-ink">
+      <AnimatePresence>
+        {shouldShowWelcome ? (
+          <LandingWelcomeOverlay
+            snapshot={accessSnapshot}
+            onDismiss={dismissWelcome}
+            onOpenPdf={() => {
+              dismissWelcome();
+              inputRef.current?.click();
+            }}
+            onOpenDemo={() => {
+              dismissWelcome();
+              onOpenDemo();
+            }}
+          />
+        ) : null}
+      </AnimatePresence>
+
       {/* Full-page drop overlay */}
       <AnimatePresence>
         {isDragging && (
@@ -1750,6 +2019,7 @@ function Landing({
         <div className="mx-auto flex max-w-[1240px] items-center justify-between">
           <div className="text-[11px] font-mono font-semibold uppercase tracking-[0.28em] text-ink pl-2">Linea</div>
           <div className="flex items-center gap-4 text-[10px] font-mono uppercase tracking-[0.16em] text-ink/48">
+            <ClerkAccessControls snapshot={accessSnapshot} compact />
             <a
               href={`${import.meta.env.BASE_URL}?demo=1`}
               onClick={(event) => {
@@ -2554,6 +2824,7 @@ export function App({ initialDocument }: AppProps) {
         error={error}
         theme={theme}
         toggleTheme={toggleTheme}
+        accessSnapshot={managedAccess.snapshot}
       />
     );
   }
