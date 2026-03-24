@@ -2245,6 +2245,7 @@ function Landing({
   onFile,
   onOpenDemo,
   loading,
+  loadingSample,
   progress,
   error,
   theme,
@@ -2254,6 +2255,7 @@ function Landing({
   onFile: (file: File) => void;
   onOpenDemo: () => void;
   loading: boolean;
+  loadingSample: string | null;
   progress: ExtractionProgress | null;
   error: string;
   theme: string;
@@ -3148,6 +3150,7 @@ export function App({ initialDocument }: AppProps) {
         onFile={handleFile}
         onOpenDemo={openDemo}
         loading={loading}
+        loadingSample={loadingSample}
         progress={progress}
         error={error}
         theme={theme}
