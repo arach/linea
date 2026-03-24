@@ -169,7 +169,6 @@ function ManagedAuthRedirect() {
         </div>
         <div className="relative flex min-h-screen items-center justify-center px-5 py-14 sm:px-8">
           <div className="relative w-full max-w-[1040px] overflow-hidden rounded-[34px] border border-black/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,242,235,0.96))] shadow-[0_40px_120px_-64px_rgba(0,0,0,0.38)]">
-            <div className="absolute inset-x-0 top-0 h-36 bg-[radial-gradient(circle_at_top,rgba(212,115,74,0.2),transparent_72%)]" />
             <div className="grid gap-8 px-6 py-7 sm:px-8 lg:grid-cols-[minmax(0,1.1fr)_320px] lg:px-10 lg:py-10">
               <div className="space-y-6">
                 <div className="inline-flex items-center gap-2 rounded-full border border-accent/12 bg-accent/8 px-3 py-1.5">
@@ -254,7 +253,6 @@ function ManagedAuthRedirect() {
       </div>
       <div className="relative flex min-h-screen items-center justify-center px-5 py-14 sm:px-8">
         <div className="relative w-full max-w-[1040px] overflow-hidden rounded-[34px] border border-black/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,242,235,0.96))] shadow-[0_40px_120px_-64px_rgba(0,0,0,0.38)]">
-          <div className="absolute inset-x-0 top-0 h-36 bg-[radial-gradient(circle_at_top,rgba(212,115,74,0.2),transparent_72%)]" />
           <div className="grid gap-8 px-6 py-7 sm:px-8 lg:grid-cols-[minmax(0,1.1fr)_320px] lg:px-10 lg:py-10">
             <div className="space-y-6">
               <div className="inline-flex items-center gap-2 rounded-full border border-accent/12 bg-accent/8 px-3 py-1.5">
