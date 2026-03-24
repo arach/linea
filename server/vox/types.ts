@@ -1,4 +1,4 @@
-import type { VoxProviderId, VoxSynthesisRequest } from "../../src/lib/vox";
+import type { LineaVoiceProviderId, LineaVoiceSynthesisRequest } from "../../src/lib/linea-voice";
 
 export type VoxProviderConfig = {
   text: string;
@@ -21,19 +21,19 @@ export type VoxAlignment = {
 
 export type VoxCacheEntry = {
   cacheKey: string;
-  provider: VoxProviderId;
+  provider: LineaVoiceProviderId;
   voice: string;
   rate: number;
   format: "mp3";
   filePath: string;
   text: string;
   createdAt: string;
-  source?: VoxSynthesisRequest["source"];
+  source?: LineaVoiceSynthesisRequest["source"];
   alignment?: VoxAlignment;
 };
 
 export interface VoxProvider {
-  id: VoxProviderId;
+  id: LineaVoiceProviderId;
   label: string;
   defaultVoice: string;
   isAvailable(): Promise<boolean>;

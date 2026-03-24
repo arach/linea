@@ -1,16 +1,17 @@
 import fs from "node:fs/promises";
 
 import type {
-  VoxVoice,
-  VoxCredentialStatus,
-  VoxProviderId,
-  VoxProviderStatus,
-  VoxSynthesisRequest,
-  VoxSynthesisResponse,
-} from "../../src/lib/vox";
+  LineaVoice,
+  LineaVoiceCredentialStatus,
+  LineaVoiceProviderId,
+  LineaVoiceProviderStatus,
+  LineaVoiceSynthesisRequest,
+  LineaVoiceSynthesisResponse,
+} from "../../src/lib/linea-voice";
 import { VoxCache } from "./cache";
 import {
   getProviderApiKey,
+  getProviderApiKeyWithScope,
   deleteProviderApiKey,
   getProviderCredentialStatus,
   setProviderApiKey,
@@ -19,14 +20,14 @@ import { createVoxOraRuntime } from "./ora";
 import type { VoxAlignment, VoxAlignedWord } from "./types";
 
 type VoxOraRuntime = {
-  listProviders(): VoxProviderId[];
-  getProvider(provider: VoxProviderId): unknown;
-  setCredentials(provider: VoxProviderId, credentials: { apiKey: string }): void;
-  deleteCredentials(provider: VoxProviderId): boolean;
-  listVoices(provider: VoxProviderId): Promise<VoxVoice[]>;
+  listProviders(): LineaVoiceProviderId[];
+  getProvider(provider: LineaVoiceProviderId): unknown;
+  setCredentials(provider: LineaVoiceProviderId, credentials: { apiKey: string }): void;
+  deleteCredentials(provider: LineaVoiceProviderId): boolean;
+  listVoices(provider: LineaVoiceProviderId): Promise<LineaVoice[]>;
   listProviderSummaries(): Promise<
     Array<{
-      id: VoxProviderId;
+      id: LineaVoiceProviderId;
       label: string;
       hasCredentials: boolean;
       capabilities: {
@@ -35,7 +36,7 @@ type VoxOraRuntime = {
     }>
   >;
   synthesize(request: {
-    provider: VoxProviderId;
+    provider: LineaVoiceProviderId;
     text: string;
     voice: string;
     rate?: number;
@@ -50,19 +51,36 @@ type VoxOraRuntime = {
 
 type VoxProviderAdapter = {
   label?: string;
-  listVoices?: () => Promise<VoxVoice[]> | VoxVoice[];
+  listVoices?: () => Promise<LineaVoice[]> | LineaVoice[];
 };
+
+type VoxCredentialScope = {
+  allowManagedCredentials?: boolean;
+  allowLocalCredentials?: boolean;
+};
+
+function resolveCredentialScope(scope?: VoxCredentialScope) {
+  return {
+    allowManagedCredentials: scope?.allowManagedCredentials ?? false,
+    allowLocalCredentials: scope?.allowLocalCredentials ?? true,
+  };
+}
 
 export class VoxService {
   private cache = new VoxCache();
   private ora = createVoxOraRuntime();
   private runtime = this.ora.runtime as unknown as VoxOraRuntime;
-  private providers = this.ora.providers as Record<VoxProviderId, VoxProviderAdapter>;
-  private inflight = new Map<string, Promise<VoxSynthesisResponse>>();
+  private providers = this.ora.providers as Record<LineaVoiceProviderId, VoxProviderAdapter>;
+  private inflight = new Map<string, Promise<LineaVoiceSynthesisResponse>>();
 
-  private async syncCredentials() {
-    for (const providerId of this.runtime.listProviders() as VoxProviderId[]) {
-      const apiKey = await getProviderApiKey(providerId);
+  private async syncCredentials(scope?: VoxCredentialScope) {
+    const credentialScope = resolveCredentialScope(scope);
+
+    for (const providerId of this.runtime.listProviders() as LineaVoiceProviderId[]) {
+      const apiKey = await getProviderApiKeyWithScope(providerId, {
+        allowManaged: credentialScope.allowManagedCredentials,
+        allowLocal: credentialScope.allowLocalCredentials,
+      });
 
       if (apiKey) {
         this.runtime.setCredentials(providerId, { apiKey });
@@ -73,12 +91,18 @@ export class VoxService {
     }
   }
 
-  async listProviders(): Promise<VoxProviderStatus[]> {
-    await this.syncCredentials();
+  async listProviders(scope?: VoxCredentialScope): Promise<LineaVoiceProviderStatus[]> {
+    const credentialScope = resolveCredentialScope(scope);
+    await this.syncCredentials(credentialScope);
     return Promise.all(
-      (Object.keys(this.providers) as VoxProviderId[]).map(async (providerId) => {
+      (Object.keys(this.providers) as LineaVoiceProviderId[]).map(async (providerId) => {
         const provider = this.providers[providerId];
-        const hasCredentials = Boolean(await getProviderApiKey(providerId));
+        const hasCredentials = Boolean(
+          await getProviderApiKeyWithScope(providerId, {
+            allowManaged: credentialScope.allowManagedCredentials,
+            allowLocal: credentialScope.allowLocalCredentials,
+          }),
+        );
         const voices = provider.listVoices ? await provider.listVoices() : [];
         return {
           id: providerId,
@@ -91,41 +115,52 @@ export class VoxService {
     );
   }
 
-  async getCapabilities() {
+  async getCapabilities(scope?: VoxCredentialScope) {
     return {
-      alignment: await this.canAlign(),
+      alignment: await this.canAlign(scope),
     };
   }
 
-  async listVoices(provider: VoxProviderId): Promise<VoxVoice[]> {
-    await this.syncCredentials();
+  async listVoices(provider: LineaVoiceProviderId, scope?: VoxCredentialScope): Promise<LineaVoice[]> {
+    await this.syncCredentials(scope);
     return (await this.providers[provider]?.listVoices?.()) ?? [];
   }
 
-  async listCredentialStatuses(): Promise<VoxCredentialStatus[]> {
+  async listCredentialStatuses(scope?: VoxCredentialScope): Promise<LineaVoiceCredentialStatus[]> {
+    const credentialScope = resolveCredentialScope(scope);
     return Promise.all(
-      (this.runtime.listProviders() as VoxProviderId[]).map((providerId) =>
-        getProviderCredentialStatus(providerId as VoxProviderId),
+      (this.runtime.listProviders() as LineaVoiceProviderId[]).map((providerId) =>
+        getProviderCredentialStatus(providerId as LineaVoiceProviderId, {
+          allowManaged: credentialScope.allowManagedCredentials,
+          allowLocal: credentialScope.allowLocalCredentials,
+        }),
       ),
     );
   }
 
-  async getCredentialStatus(provider: VoxProviderId) {
-    return getProviderCredentialStatus(provider);
+  async getCredentialStatus(provider: LineaVoiceProviderId, scope?: VoxCredentialScope) {
+    const credentialScope = resolveCredentialScope(scope);
+    return getProviderCredentialStatus(provider, {
+      allowManaged: credentialScope.allowManagedCredentials,
+      allowLocal: credentialScope.allowLocalCredentials,
+    });
   }
 
-  async setCredential(provider: VoxProviderId, apiKey: string) {
+  async setCredential(provider: LineaVoiceProviderId, apiKey: string) {
     await setProviderApiKey(provider, apiKey);
     return getProviderCredentialStatus(provider);
   }
 
-  async deleteCredential(provider: VoxProviderId) {
+  async deleteCredential(provider: LineaVoiceProviderId) {
     await deleteProviderApiKey(provider);
     return getProviderCredentialStatus(provider);
   }
 
-  async synthesize(request: VoxSynthesisRequest): Promise<VoxSynthesisResponse> {
-    await this.syncCredentials();
+  async synthesize(
+    request: LineaVoiceSynthesisRequest,
+    scope?: VoxCredentialScope,
+  ): Promise<LineaVoiceSynthesisResponse> {
+    await this.syncCredentials(scope);
 
     const provider = this.runtime.getProvider(request.provider);
     if (!provider) {
@@ -237,7 +272,7 @@ export class VoxService {
         cached: false,
         audioUrl: `/api/vox/audio/${cacheKey}`,
         source: request.source,
-      } satisfies VoxSynthesisResponse;
+      } satisfies LineaVoiceSynthesisResponse;
     })();
 
     this.inflight.set(cacheKey, pending);
@@ -266,7 +301,11 @@ export class VoxService {
     return entry?.alignment ?? null;
   }
 
-  async align(cacheKey: string): Promise<VoxAlignment | null> {
+  async getCacheEntry(cacheKey: string) {
+    return this.cache.get(cacheKey);
+  }
+
+  async align(cacheKey: string, scope?: VoxCredentialScope): Promise<VoxAlignment | null> {
     const entry = await this.cache.get(cacheKey);
     if (!entry) {
       throw new Error("Audio not found in cache");
@@ -283,7 +322,7 @@ export class VoxService {
       textLength: entry.text.length,
     });
 
-    if (!(await this.canAlign())) {
+    if (!(await this.canAlign(scope))) {
       console.info("[linea:vox] alignment-skipped", {
         cacheKey,
         reason: "no-backend",
@@ -291,7 +330,7 @@ export class VoxService {
       return null;
     }
 
-    const whisperResult = await this.alignWithWhisper(entry.filePath);
+    const whisperResult = await this.alignWithWhisper(entry.filePath, scope);
     const words = whisperResult.words;
     const durationMs = whisperResult.durationMs;
     console.info("[linea:vox] alignment-source", { source: "whisper-api" });
@@ -313,12 +352,25 @@ export class VoxService {
     return alignment;
   }
 
-  private async canAlign() {
-    return Boolean(await getProviderApiKey("openai"));
+  private async canAlign(scope?: VoxCredentialScope) {
+    const credentialScope = resolveCredentialScope(scope);
+    return Boolean(
+      await getProviderApiKeyWithScope("openai", {
+        allowManaged: credentialScope.allowManagedCredentials,
+        allowLocal: credentialScope.allowLocalCredentials,
+      }),
+    );
   }
 
-  private async alignWithWhisper(filePath: string): Promise<{ words: VoxAlignedWord[]; durationMs: number }> {
-    const apiKey = await getProviderApiKey("openai");
+  private async alignWithWhisper(
+    filePath: string,
+    scope?: VoxCredentialScope,
+  ): Promise<{ words: VoxAlignedWord[]; durationMs: number }> {
+    const credentialScope = resolveCredentialScope(scope);
+    const apiKey = await getProviderApiKeyWithScope("openai", {
+      allowManaged: credentialScope.allowManagedCredentials,
+      allowLocal: credentialScope.allowLocalCredentials,
+    });
     if (!apiKey) {
       throw new Error("No alignment backend available (Vox offline, no OpenAI key)");
     }

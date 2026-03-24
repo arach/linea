@@ -20,6 +20,7 @@ import {
   ALargeSmall,
   AudioLines,
   Palette,
+  ScanSearch,
   Upload,
   X,
   Zap,
@@ -41,7 +42,7 @@ import type {
   ReaderPage,
   ReaderParagraph,
 } from "@/lib/pdf";
-import { getPdfModule, loadReaderDocument } from "@/lib/pdf";
+import { buildReaderPageFromText, getPdfModule, loadReaderDocument } from "@/lib/pdf";
 import {
   defaultReaderSettings,
   type ReaderFont,
@@ -52,7 +53,23 @@ import {
 } from "@/lib/reader-presentation";
 import { useVoiceConsole } from "@/lib/voice";
 import { useTheme } from "@/lib/theme";
-import { ProviderCredentials } from "@/components/provider-credentials";
+import {
+  pollFabricRunnerJob,
+  probeFabricRunner,
+  submitFabricRunnerOcrPageJob,
+  submitFabricRunnerPdfPageImageJob,
+  type FabricRunnerRuntime,
+} from "@/lib/fabric-runner";
+import {
+  clearDevInspectorEntries,
+  getDevInspectorEntries,
+  subscribeDevInspector,
+  type DevInspectorEntry,
+  type DevInspectorSource,
+} from "@/lib/dev-inspector";
+import { ClerkAccessControls } from "@/components/clerk-access-controls";
+import { ManagedAccessPanel } from "@/components/managed-access-panel";
+import { useLineaAccessSnapshot } from "@/lib/use-linea-access";
 import { formatCount, formatMinutes } from "@/lib/utils";
 
 /* ─── types ─── */
@@ -60,6 +77,113 @@ import { formatCount, formatMinutes } from "@/lib/utils";
 type AppProps = {
   initialDocument: ReaderDocument | null;
 };
+
+function DevInspectorSidebar() {
+  const [open, setOpen] = useState(false);
+  const [entries, setEntries] = useState<DevInspectorEntry[]>(() => getDevInspectorEntries());
+  const [activeSources, setActiveSources] = useState<DevInspectorSource[]>(["ora", "vox", "voxd", "fabrun"]);
+
+  useEffect(() => subscribeDevInspector(() => setEntries(getDevInspectorEntries())), []);
+
+  const sourceCounts = useMemo(() => {
+    return {
+      ora: entries.filter((entry) => entry.source === "ora").length,
+      vox: entries.filter((entry) => entry.source === "vox").length,
+      voxd: entries.filter((entry) => entry.source === "voxd").length,
+      fabrun: entries.filter((entry) => entry.source === "fabrun").length,
+    } satisfies Record<DevInspectorSource, number>;
+  }, [entries]);
+
+  const visibleEntries = useMemo(
+    () => entries.filter((entry) => activeSources.includes(entry.source)),
+    [activeSources, entries],
+  );
+
+  const toggleSource = (source: DevInspectorSource) => {
+    setActiveSources((current) => {
+      if (current.includes(source)) {
+        return current.length === 1 ? current : current.filter((item) => item !== source);
+      }
+      return [...current, source];
+    });
+  };
+
+  if (!import.meta.env.DEV) {
+    return null;
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="linea-dev-inspector-toggle"
+        onClick={() => setOpen((current) => !current)}
+      >
+        Inspect
+        <span>{entries.length}</span>
+      </button>
+      <aside className={`linea-dev-inspector${open ? " open" : ""}`}>
+        <div className="linea-dev-inspector-header">
+          <div>
+            <div className="linea-dev-inspector-title">Request inspection</div>
+            <div className="linea-dev-inspector-subtitle">ora · vox · voxd · fabrun</div>
+          </div>
+          <div className="linea-dev-inspector-actions">
+            <button type="button" className="linea-btn-ghost linea-btn-icon" onClick={() => setEntries(getDevInspectorEntries())}>
+              Refresh
+            </button>
+            <button type="button" className="linea-btn-ghost linea-btn-icon" onClick={() => { clearDevInspectorEntries(); setEntries([]); }}>
+              Clear
+            </button>
+            <button type="button" className="linea-btn-ghost linea-btn-icon" onClick={() => setOpen(false)}>
+              <X size={14} /> Close
+            </button>
+          </div>
+        </div>
+        <div className="linea-dev-inspector-filters">
+          {(["ora", "vox", "voxd", "fabrun"] as DevInspectorSource[]).map((source) => {
+            const active = activeSources.includes(source);
+            return (
+              <button
+                key={source}
+                type="button"
+                className={`linea-dev-filter${active ? " active" : ""}`}
+                onClick={() => toggleSource(source)}
+              >
+                <span className={`linea-dev-source linea-dev-source-${source}`}>{source}</span>
+                <span>{sourceCounts[source]}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="linea-dev-inspector-list">
+          {visibleEntries.length === 0 ? (
+            <div className="linea-dev-inspector-empty">No entries yet.</div>
+          ) : (
+            visibleEntries.map((entry) => (
+              <div key={entry.id} className={`linea-dev-entry linea-dev-entry-${entry.status}`}>
+                <div className="linea-dev-entry-top">
+                  <span className={`linea-dev-source linea-dev-source-${entry.source}`}>{entry.source}</span>
+                  <span className="linea-dev-action">{entry.action}</span>
+                  <span className="linea-dev-status">{entry.status}</span>
+                </div>
+                <div className="linea-dev-entry-meta">
+                  {entry.method ? <span>{entry.method}</span> : null}
+                  {entry.durationMs != null ? <span>{entry.durationMs}ms</span> : null}
+                  <span>{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                </div>
+                {entry.url ? <div className="linea-dev-url">{entry.url}</div> : null}
+                {entry.detail ? (
+                  <pre className="linea-dev-detail">{JSON.stringify(entry.detail, null, 2)}</pre>
+                ) : null}
+              </div>
+            ))
+          )}
+        </div>
+      </aside>
+    </>
+  );
+}
 
 /* ─── pdf renderer hook ─── */
 
@@ -130,7 +254,6 @@ function renderPdfPage(
     try {
       const page = await doc.getPage(pageNumber);
       if (signal.cancelled) {
-        page.cleanup();
         return;
       }
       const viewport = page.getViewport({ scale });
@@ -139,7 +262,6 @@ function renderPdfPage(
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       await page.render({ canvasContext: ctx, viewport, canvas } as Parameters<typeof page.render>[0]).promise;
-      page.cleanup();
     } catch {
       /* page may have been cleaned up */
     }
@@ -168,6 +290,69 @@ function PdfThumbnail({
   }, [doc, pageNumber, scale]);
 
   return <canvas ref={canvasRef} />;
+}
+
+function PdfInlinePreview({
+  doc,
+  pageNumber,
+  imageDataUrl,
+  scale = 1.35,
+}: {
+  doc: PdfDocumentProxy | null;
+  pageNumber: number;
+  imageDataUrl: string | null;
+  scale?: number;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    if (imageDataUrl) return;
+    const canvas = canvasRef.current;
+    if (!canvas || !doc) return;
+    const signal = { cancelled: false };
+    void renderPdfPage(doc, pageNumber, canvas, scale, signal);
+    return () => {
+      signal.cancelled = true;
+    };
+  }, [doc, pageNumber, scale]);
+
+  return (
+    <div
+      style={{
+        border: "1px solid rgba(26, 17, 9, 0.08)",
+        borderRadius: 24,
+        padding: 18,
+        background: "rgba(255,255,255,0.62)",
+        boxShadow: "0 18px 44px rgba(26, 17, 9, 0.06)",
+        overflow: "hidden",
+      }}
+    >
+      {imageDataUrl ? (
+        <img
+          src={imageDataUrl}
+          alt={`Page ${pageNumber}`}
+          style={{
+            width: "100%",
+            height: "auto",
+            display: "block",
+            borderRadius: 16,
+            background: "#fff",
+          }}
+        />
+      ) : (
+        <canvas
+          ref={canvasRef}
+          style={{
+            width: "100%",
+            height: "auto",
+            display: "block",
+            borderRadius: 16,
+            background: "#fff",
+          }}
+        />
+      )}
+    </div>
+  );
 }
 
 /* ─── pdf expand overlay ─── */
@@ -639,10 +824,12 @@ function ContextPanel({
 function HeaderPopover({
   open,
   onClose,
+  className,
   children,
 }: {
   open: boolean;
   onClose: () => void;
+  className?: string;
   children: React.ReactNode;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -658,7 +845,7 @@ function HeaderPopover({
 
   if (!open) return null;
   return (
-    <div ref={ref} className="linea-header-popover">
+    <div ref={ref} className={`linea-header-popover${className ? ` ${className}` : ""}`}>
       {children}
     </div>
   );
@@ -669,11 +856,17 @@ function ApiKeySetupModal({
   onClose,
   onCredentialsChanged,
   localRuntime,
+  accessSnapshot,
+  accessLoading,
+  accessError,
 }: {
   open: boolean;
   onClose: () => void;
   onCredentialsChanged: () => void;
   localRuntime: ReturnType<typeof useVoiceConsole>["localRuntime"];
+  accessSnapshot: ReturnType<typeof useLineaAccessSnapshot>["snapshot"];
+  accessLoading: boolean;
+  accessError: string;
 }) {
   useEffect(() => {
     if (!open) {
@@ -724,11 +917,14 @@ function ApiKeySetupModal({
           </button>
         </div>
         <p className="linea-modal-copy">
-          Add API keys for OpenAI and ElevenLabs to enable voice playback. Keys are stored in your
-          operating system secure credential store.
+          {accessSnapshot.enabled
+            ? "Shared voice is gated by account access and server-side provider keys. Sign in with an approved account to unlock it."
+            : "Add API keys for OpenAI and ElevenLabs to enable voice playback. Keys are stored in your operating system secure credential store."}
         </p>
-        <ProviderCredentials
-          variant="plain"
+        <ManagedAccessPanel
+          snapshot={accessSnapshot}
+          loading={accessLoading}
+          error={accessError}
           localRuntime={localRuntime}
           onCredentialsChanged={onCredentialsChanged}
         />
@@ -739,9 +935,30 @@ function ApiKeySetupModal({
 }
 
 const SAMPLE_DOCUMENTS = [
-  { file: "whitepaper.pdf", label: "White Paper", description: "AI research paper" },
-  { file: "article.pdf", label: "Press Release", description: "Earnings report" },
-  { file: "book.pdf", label: "Book", description: "Full-length book" },
+  {
+    file: "attention-is-all-you-need.pdf",
+    label: "Attention Is All You Need",
+    description: "Seminal transformer paper",
+    localPath: "/Users/arach/dev/linea/public/samples/attention-is-all-you-need.pdf",
+  },
+  {
+    file: "whitepaper.pdf",
+    label: "White Paper",
+    description: "AI research paper",
+    localPath: "/Users/arach/dev/linea/public/samples/whitepaper.pdf",
+  },
+  {
+    file: "book.pdf",
+    label: "Technical Book",
+    description: "Full-length technical book",
+    localPath: "/Users/arach/dev/linea/public/samples/book.pdf",
+  },
+  {
+    file: "book-of-verses.pdf",
+    label: "Book of Verses",
+    description: "Scanned poetry collection",
+    localPath: "/Users/arach/dev/linea/public/samples/book-of-verses.pdf",
+  },
 ] as const;
 
 function Header({
@@ -755,10 +972,13 @@ function Header({
   onSettingsChange,
   voice,
   documentProgress,
+  accessSnapshot,
+  accessLoading,
+  accessError,
 }: {
   document: ReaderDocument | null;
   onUploadClick: () => void;
-  onLoadSample: (file: string, label: string) => void;
+  onLoadSample: (file: string, label: string, options?: { localPath?: string }) => void;
   loadingSample: string | null;
   theme: string;
   toggleTheme: () => void;
@@ -766,6 +986,9 @@ function Header({
   onSettingsChange: (s: ReaderSettings) => void;
   voice: ReturnType<typeof useVoiceConsole>;
   documentProgress: number;
+  accessSnapshot: ReturnType<typeof useLineaAccessSnapshot>["snapshot"];
+  accessLoading: boolean;
+  accessError: string;
 }) {
   const [openPopover, setOpenPopover] = useState<"typography" | "theme" | "voice" | "library" | null>(null);
   const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
@@ -791,6 +1014,7 @@ function Header({
           {document && <span className="linea-header-sub">Reader</span>}
         </div>
         <nav className="linea-nav">
+          <ClerkAccessControls snapshot={accessSnapshot} compact />
           {document && (
             <>
               <div style={{ position: "relative" }}>
@@ -844,6 +1068,16 @@ function Header({
                 <button
                   type="button"
                   className="linea-btn-ghost linea-btn-icon"
+                  onClick={toggleTheme}
+                  aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+                >
+                  {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
+                </button>
+              </div>
+              <div style={{ position: "relative" }}>
+                <button
+                  type="button"
+                  className="linea-btn-ghost linea-btn-icon"
                   onClick={() => togglePopover("theme")}
                   aria-label="Theme settings"
                 >
@@ -865,25 +1099,6 @@ function Header({
                       ),
                     )}
                   </div>
-                  <div style={{ marginTop: 10 }}>
-                    <span className="linea-panel-label">Mode</span>
-                    <div className="linea-setting-row" style={{ marginTop: 6 }}>
-                      <button
-                        type="button"
-                        className={`linea-chip${theme === "light" ? " active" : ""}`}
-                        onClick={() => { if (theme === "dark") toggleTheme(); }}
-                      >
-                        <Sun size={12} /> Light
-                      </button>
-                      <button
-                        type="button"
-                        className={`linea-chip${theme === "dark" ? " active" : ""}`}
-                        onClick={() => { if (theme === "light") toggleTheme(); }}
-                      >
-                        <Moon size={12} /> Dark
-                      </button>
-                    </div>
-                  </div>
                 </HeaderPopover>
               </div>
               <div style={{ position: "relative" }}>
@@ -903,9 +1118,26 @@ function Header({
                 >
                   <AudioLines size={14} />
                 </button>
-                <HeaderPopover open={openPopover === "voice"} onClose={() => setOpenPopover(null)}>
+                <HeaderPopover
+                  open={openPopover === "voice"}
+                  onClose={() => setOpenPopover(null)}
+                  className="linea-header-popover-voice"
+                >
                   {voice.providers.length > 0 ? (
                     <>
+                      <div className="voice-popover-header">
+                        <div>
+                          <span className="linea-panel-label">Voice</span>
+                          <div className="voice-popover-title">
+                            {voice.selectedProviderMeta?.label ?? "Speech playback"}
+                          </div>
+                        </div>
+                        {voice.selectedVoiceMeta ? (
+                          <div className="voice-popover-chip">
+                            {voice.selectedVoiceMeta.label}
+                          </div>
+                        ) : null}
+                      </div>
                       <div className="voice-provider-tabs">
                         {voice.providers.map((provider) => (
                           <button
@@ -915,15 +1147,38 @@ function Header({
                             onClick={() => voice.setSelectedProvider(provider.id)}
                             disabled={!provider.available && voice.providers.some((e) => e.available)}
                           >
-                            <span>{provider.label}</span>
-                            <span className="voice-provider-count">{voice.selectedProvider === provider.id ? voice.voices.length : "..."}</span>
+                            <span className="voice-provider-copy">
+                              <span>{provider.label}</span>
+                              <span className="voice-provider-state">
+                                {provider.available ? "Configured" : "Needs key"}
+                              </span>
+                            </span>
+                            <span className="voice-provider-count">
+                              {voice.selectedProvider === provider.id ? voice.voices.length : "··"}
+                            </span>
                           </button>
                         ))}
+                      </div>
+                      <div className="voice-popover-section">
+                        <div className="voice-selection-summary">
+                          <div className="voice-selection-copy">
+                            <span className="linea-panel-label">Selected voice</span>
+                            <strong>
+                              {voice.selectedVoiceMeta?.label ?? "Choose a voice"}
+                            </strong>
+                            <span>
+                              {voice.selectedVoiceMeta
+                                ? describeVoice(voice.selectedVoiceMeta)
+                                : "Available voices appear below."}
+                            </span>
+                          </div>
+                          <div className="voice-selection-rate">{voice.rate.toFixed(1)}x</div>
+                        </div>
                       </div>
                       {voice.loadingVoices ? (
                         <div className="linea-status">Loading voices...</div>
                       ) : voice.voices.length > 0 ? (
-                        <div className="voice-card-grid voice-card-grid-compact">
+                        <div className="voice-card-grid voice-card-grid-compact voice-card-grid-popover">
                           {voice.voices.map((entry) => (
                             <button
                               key={`${entry.provider}:${entry.id}`}
@@ -943,10 +1198,10 @@ function Header({
                   ) : (
                     <div className="linea-status">No voice providers available.</div>
                   )}
-                  <div>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span className="linea-panel-label">Rate</span>
-                      <span className="linea-panel-label">{voice.rate.toFixed(1)}x</span>
+                  <div className="voice-popover-section voice-popover-tuning">
+                    <div className="voice-popover-row">
+                      <span className="linea-panel-label">Playback rate</span>
+                      <span className="voice-rate-badge">{voice.rate.toFixed(1)}x</span>
                     </div>
                     <input
                       type="range" min={0.7} max={1.4} step={0.1}
@@ -955,18 +1210,20 @@ function Header({
                       className="linea-slider"
                     />
                   </div>
-                  <button
-                    type="button"
-                    className="linea-btn-secondary"
-                    onClick={() => setApiKeyModalOpen(true)}
-                  >
-                    Manage API keys
-                  </button>
-                  {voice.localRuntime ? (
-                    <div className="linea-status">
-                      Vox Companion connected on {voice.localRuntime.baseUrl.replace("http://", "")}
-                    </div>
-                  ) : null}
+                  <div className="voice-popover-footer">
+                    <button
+                      type="button"
+                      className="linea-btn-secondary voice-manage-keys"
+                      onClick={() => setApiKeyModalOpen(true)}
+                    >
+                      Manage API keys
+                    </button>
+                    {voice.localRuntime ? (
+                      <div className="voice-runtime-note">
+                        VoxD ready on {voice.localRuntime.baseUrl.replace("http://", "")}
+                      </div>
+                    ) : null}
+                  </div>
                 </HeaderPopover>
               </div>
             </>
@@ -993,7 +1250,9 @@ function Header({
                         disabled={loadingSample !== null}
                         onClick={() => {
                           const base = import.meta.env.BASE_URL.replace(/\/$/, "");
-                          onLoadSample(`${base}/samples/${sample.file}`, sample.label);
+                          onLoadSample(`${base}/samples/${sample.file}`, sample.label, {
+                            localPath: sample.localPath,
+                          });
                           setOpenPopover(null);
                         }}
                       >
@@ -1026,6 +1285,9 @@ function Header({
         onClose={() => setApiKeyModalOpen(false)}
         onCredentialsChanged={() => void voice.refreshProviders()}
         localRuntime={voice.localRuntime}
+        accessSnapshot={accessSnapshot}
+        accessLoading={accessLoading}
+        accessError={accessError}
       />
       {document && (
         <div className="linea-doc-progress-strip">
@@ -1036,11 +1298,17 @@ function Header({
   );
 }
 
-function RequestStageGlyph({ phaseIndex }: { phaseIndex: number }) {
+function RequestStageGlyph({
+  stage,
+}: {
+  stage: "requesting" | "processing" | "downloading";
+}) {
+  const activeCount = stage === "requesting" ? 2 : stage === "processing" ? 4 : 6;
+
   return (
     <div className="linea-request-glyph" aria-hidden="true">
       {Array.from({ length: 6 }).map((_, index) => {
-        const active = index <= phaseIndex + 1 && index >= phaseIndex - 1;
+        const active = index < activeCount;
         return <span key={index} className={active ? "active" : ""} />;
       })}
     </div>
@@ -1068,6 +1336,9 @@ function CommandBar({
   onStop,
   onReadSelection,
   isRequesting,
+  requestLabel,
+  requestDetail,
+  requestStage,
   clipProgress,
   clipElapsedMs,
   clipDurationMs,
@@ -1093,6 +1364,9 @@ function CommandBar({
   onStop: () => void;
   onReadSelection: () => void;
   isRequesting: boolean;
+  requestLabel: string;
+  requestDetail: string;
+  requestStage: "requesting" | "processing" | "downloading" | null;
   clipProgress: number;
   clipElapsedMs: number;
   clipDurationMs: number;
@@ -1103,23 +1377,6 @@ function CommandBar({
   const wordCount = selectedParagraph
     ? selectedParagraph.text.split(/\s+/).filter(Boolean).length
     : page.wordCount;
-  const [requestPhaseIndex, setRequestPhaseIndex] = useState(0);
-
-  useEffect(() => {
-    if (!isRequesting) {
-      setRequestPhaseIndex(0);
-      return;
-    }
-
-    const interval = window.setInterval(() => {
-      setRequestPhaseIndex((current) => (current + 1) % 3);
-    }, 1200);
-
-    return () => window.clearInterval(interval);
-  }, [isRequesting]);
-
-  const requestPhaseLabels = ["Requesting", "Processing", "Downloading"];
-  const requestPhaseLabel = requestPhaseLabels[requestPhaseIndex];
   const canSeek = clipDurationMs > 0 && !isRequesting;
 
   // Derive a short context label: "P1 ¶3" style
@@ -1169,8 +1426,11 @@ function CommandBar({
 
         {isRequesting && (
           <div className="linea-command-requesting">
-            <RequestStageGlyph phaseIndex={requestPhaseIndex} />
-            <span className="linea-command-meta">{requestPhaseLabel}</span>
+            <RequestStageGlyph stage={requestStage ?? "requesting"} />
+            <div className="linea-command-requesting-copy">
+              <span className="linea-command-requesting-label">{requestLabel}</span>
+              <span className="linea-command-requesting-detail">{requestDetail}</span>
+            </div>
           </div>
         )}
 
@@ -1380,6 +1640,7 @@ function LandingReaderPreview() {
 
 function Landing({
   onFile,
+  onOpenDemo,
   loading,
   progress,
   error,
@@ -1387,6 +1648,7 @@ function Landing({
   toggleTheme,
 }: {
   onFile: (file: File) => void;
+  onOpenDemo: () => void;
   loading: boolean;
   progress: ExtractionProgress | null;
   error: string;
@@ -1463,7 +1725,16 @@ function Landing({
         <div className="mx-auto flex max-w-[1240px] items-center justify-between">
           <div className="text-[11px] font-mono font-semibold uppercase tracking-[0.28em] text-ink pl-2">Linea</div>
           <div className="flex items-center gap-4 text-[10px] font-mono uppercase tracking-[0.16em] text-ink/48">
-            <a href={`${import.meta.env.BASE_URL}playground`} className="transition-colors hover:text-ink">Demo</a>
+            <a
+              href={`${import.meta.env.BASE_URL}?demo=1`}
+              onClick={(event) => {
+                event.preventDefault();
+                onOpenDemo();
+              }}
+              className="transition-colors hover:text-ink"
+            >
+              Demo
+            </a>
             <button
               type="button"
               onClick={toggleTheme}
@@ -1482,12 +1753,7 @@ function Landing({
 
           {/* Hero */}
           <div className="grid grid-cols-1 items-start gap-14 lg:grid-cols-[minmax(0,34rem)_minmax(0,1fr)] lg:gap-14">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, ease: "easeOut" }}
-              className="space-y-8 md:space-y-9"
-            >
+            <div className="space-y-8 md:space-y-9">
               <div className="space-y-5">
                 <div className="inline-flex items-center gap-2 rounded-[10px] border border-accent/10 bg-accent/8 px-3 py-1.5">
                   <Sparkles size={12} className="text-accent" />
@@ -1508,13 +1774,17 @@ function Landing({
                   type="button"
                   onClick={() => inputRef.current?.click()}
                   disabled={loading}
-                  className="group flex items-center justify-center gap-2.5 rounded-full bg-accent px-7 py-2.5 text-[9px] font-mono font-bold uppercase tracking-[0.18em] text-white shadow-xl shadow-accent/20 transition-all hover:brightness-110 disabled:opacity-50 sm:px-8 sm:py-3"
+                  className="group flex items-center justify-center gap-2 rounded-full bg-accent px-5 py-2.5 text-[9px] font-mono font-semibold uppercase tracking-[0.11em] text-white shadow-xl shadow-accent/20 transition-all hover:brightness-110 disabled:opacity-50 sm:px-6 sm:py-3"
                 >
-                  <Upload size={16} className="group-hover:-translate-y-0.5 transition-transform" />
+                  <Upload size={14} className="group-hover:-translate-y-0.5 transition-transform" />
                   {loading ? "Opening..." : "Open a PDF"}
                 </button>
                 <a
-                  href={`${import.meta.env.BASE_URL}playground`}
+                  href={`${import.meta.env.BASE_URL}?demo=1`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    onOpenDemo();
+                  }}
                   className={`flex items-center justify-center gap-2 rounded-full border border-ink/30 px-7 py-2.5 text-[9px] font-mono font-semibold uppercase tracking-[0.17em] text-ink transition-all hover:bg-ink/5 sm:px-8 sm:py-3${loading ? " pointer-events-none opacity-50" : ""}`}
                 >
                   View Demo
@@ -1530,15 +1800,10 @@ function Landing({
                 </div>
               )}
 
-            </motion.div>
+            </div>
 
             {/* Preview + value props */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
-              className="relative lg:translate-x-10 lg:-translate-y-2"
-            >
+            <div className="relative lg:translate-x-10 lg:-translate-y-2">
               <div className="relative z-10">
                 <LandingReaderPreview />
 
@@ -1598,7 +1863,7 @@ function Landing({
                   desc="Optimized typography and spacing designed for long-form immersion."
                 />
               </div>
-            </motion.div>
+            </div>
           </div>
 
           {/* Secondary story */}
@@ -1644,6 +1909,8 @@ function Landing({
 function ReaderPanel({
   document,
   page,
+  pdfDoc,
+  pageImageDataUrl,
   selectedPage,
   settings,
   activeParagraphId,
@@ -1656,9 +1923,13 @@ function ReaderPanel({
   onSelectText,
   onSeekToChar,
   onReadSelection,
+  onRunOcr,
+  ocrStatus,
 }: {
   document: ReaderDocument;
   page: ReaderPage;
+  pdfDoc: PdfDocumentProxy | null;
+  pageImageDataUrl: string | null;
   selectedPage: number;
   settings: ReaderSettings;
   activeParagraphId: string | null;
@@ -1671,10 +1942,22 @@ function ReaderPanel({
   onSelectText: (selection: { text: string; paragraphId: string | null } | null) => void;
   onSeekToChar: (charIndex: number) => void;
   onReadSelection: () => void;
+  onRunOcr: () => void;
+  ocrStatus: {
+    state: "idle" | "probing" | "running" | "completed" | "empty" | "failed";
+    message?: string;
+  } | null;
 }) {
   const articleRef = useRef<HTMLElement | null>(null);
   const font = readerFonts[settings.font];
+  const readerTheme = readerThemes[settings.theme];
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
+  const shouldShowPdfSource =
+    !page.hasText ||
+    ocrStatus?.state === "running" ||
+    ocrStatus?.state === "completed" ||
+    ocrStatus?.state === "empty" ||
+    ocrStatus?.state === "failed";
 
   useEffect(() => {
     onSelectText(null);
@@ -1710,7 +1993,24 @@ function ReaderPanel({
   }, []);
 
   return (
-    <article className="linea-reader">
+    <article className={`linea-reader ${readerTheme.surfaceClass}`}>
+      {shouldShowPdfSource ? (
+        <div style={{ display: "grid", gap: 10, marginBottom: 20 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            <span className="linea-panel-label">Source page</span>
+            <span className="linea-panel-label">Rendered locally from the original PDF</span>
+          </div>
+          <PdfInlinePreview doc={pdfDoc} pageNumber={page.pageNumber} imageDataUrl={pageImageDataUrl} />
+        </div>
+      ) : null}
       {page.hasText ? (
         <div
           ref={articleRef as React.RefObject<HTMLDivElement>}
@@ -1758,7 +2058,7 @@ function ReaderPanel({
                   onSelectParagraph(selectedParagraphId === paragraph.id ? null : paragraph.id);
                 }
               }}
-              className={`linea-paragraph${activeParagraphId === paragraph.id ? " active" : ""}${selectedParagraphId === paragraph.id ? " selected" : ""}${paragraph.skip ? " skipped" : ""}`}
+              className={`linea-paragraph${activeParagraphId === paragraph.id ? " active" : ""}${selectedParagraphId === paragraph.id ? " selected" : ""}${paragraph.skip ? " skipped" : ""}${activeParagraphId === paragraph.id ? ` ${readerTheme.activeParagraphClass}` : ""}`}
             >
               <span className="linea-paragraph-text">
                 {renderParagraphText(
@@ -1773,8 +2073,34 @@ function ReaderPanel({
           ))}
         </div>
       ) : (
-        <div className="linea-status" style={{ marginTop: 20 }}>
-          No extractable text on this page. This usually means the page is image-based or needs OCR.
+        <div style={{ display: "grid", gap: 12, marginTop: 20 }}>
+          <div className="linea-status">
+            {ocrStatus?.state === "probing"
+              ? "Checking Fabric Runner for OCR support..."
+              : ocrStatus?.state === "running"
+                ? "Extracting text with Fabric Runner..."
+                : ocrStatus?.state === "empty"
+                  ? "OCR completed, but no readable text was recovered from this page."
+                  : ocrStatus?.state === "failed"
+                    ? ocrStatus.message ?? "OCR failed for this page."
+                    : "No extractable text on this page. This usually means the page is image-based or needs OCR."}
+          </div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className="linea-btn-secondary linea-btn-icon"
+              onClick={onRunOcr}
+              disabled={ocrStatus?.state === "probing" || ocrStatus?.state === "running"}
+            >
+              <ScanSearch size={14} />
+              {ocrStatus?.state === "failed" || ocrStatus?.state === "empty" ? "Retry OCR" : "Run OCR"}
+            </button>
+            <span className="linea-panel-label">
+              {document.source?.localPath
+                ? "Using local Fabric Runner OCR"
+                : "OCR is currently available for local sample documents"}
+            </span>
+          </div>
         </div>
       )}
 
@@ -1846,14 +2172,21 @@ export function App({ initialDocument }: AppProps) {
   } | null>(null);
   const [selectedParagraphId, setSelectedParagraphId] = useState<string | null>(null);
   const [expandPage, setExpandPage] = useState<number | null>(null);
+  const [fabricRunner, setFabricRunner] = useState<FabricRunnerRuntime | null>(null);
+  const [ocrByPage, setOcrByPage] = useState<
+    Record<number, { state: "idle" | "probing" | "running" | "completed" | "empty" | "failed"; message?: string }>
+  >({});
+  const [pageImageByPage, setPageImageByPage] = useState<Record<number, string>>({});
 
   const { doc: pdfDoc } = usePdfDocument(pdfData);
   const autoLoadedRef = useRef(false);
+  const attemptedOcrRef = useRef<Set<string>>(new Set());
 
   const currentPage = useMemo(
     () => document?.pages.find((p) => p.pageNumber === selectedPage) ?? null,
     [document, selectedPage],
   );
+  const managedAccess = useLineaAccessSnapshot();
 
   const voice = useVoiceConsole({
     pages: document?.pages ?? [],
@@ -1887,6 +2220,9 @@ export function App({ initialDocument }: AppProps) {
     setLoading(true);
     setError("");
     setProgress(null);
+    setOcrByPage({});
+    setPageImageByPage({});
+    attemptedOcrRef.current = new Set();
     voice.stopSpeaking();
     voice.stopListening();
     try {
@@ -1905,11 +2241,18 @@ export function App({ initialDocument }: AppProps) {
     }
   };
 
-  const loadSamplePdf = async (url: string, name: string) => {
+  const loadSamplePdf = async (
+    url: string,
+    name: string,
+    options?: { localPath?: string },
+  ) => {
     setLoading(true);
     setLoadingSample(name);
     setError("");
     setProgress(null);
+    setOcrByPage({});
+    setPageImageByPage({});
+    attemptedOcrRef.current = new Set();
     voice.stopSpeaking();
     voice.stopListening();
     try {
@@ -1921,7 +2264,10 @@ export function App({ initialDocument }: AppProps) {
       const file = new File([buffer], name.endsWith(".pdf") ? name : `${name}.pdf`, {
         type: "application/pdf",
       });
-      const doc = await loadReaderDocument(file, setProgress);
+      const doc = await loadReaderDocument(file, setProgress, {
+        url,
+        localPath: options?.localPath,
+      });
       startTransition(() => {
         setDocument(doc);
         setSelectedPage(1);
@@ -1935,6 +2281,20 @@ export function App({ initialDocument }: AppProps) {
     }
   };
 
+  const openDemo = useCallback(() => {
+    if (typeof window !== "undefined") {
+      const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+      window.history.pushState(null, "", `${base || ""}/?demo=1`);
+    }
+
+    const whitePaper = SAMPLE_DOCUMENTS.find((sample) => sample.file === "whitepaper.pdf");
+    void loadSamplePdf(
+      `${import.meta.env.BASE_URL.replace(/\/$/, "")}/samples/whitepaper.pdf`,
+      "White Paper",
+      { localPath: whitePaper?.localPath },
+    );
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Auto-load sample PDF on playground route
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1947,7 +2307,10 @@ export function App({ initialDocument }: AppProps) {
       new URLSearchParams(window.location.search).get("demo") === "1";
     if (isPlayground) {
       autoLoadedRef.current = true;
-      void loadSamplePdf(`${base}/samples/whitepaper.pdf`, "White Paper");
+      const whitePaper = SAMPLE_DOCUMENTS.find((sample) => sample.file === "whitepaper.pdf");
+      void loadSamplePdf(`${base}/samples/whitepaper.pdf`, "White Paper", {
+        localPath: whitePaper?.localPath,
+      });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1970,6 +2333,140 @@ export function App({ initialDocument }: AppProps) {
   const handlePlayPage = useCallback(() => {
     voice.speakPage(currentPage ?? undefined);
   }, [voice, currentPage]);
+
+  const runOcrForPage = useCallback(async (pageNumber: number, force = false) => {
+    if (!document?.source?.localPath) {
+      setOcrByPage((current) => ({
+        ...current,
+        [pageNumber]: {
+          state: "failed",
+          message: "Local OCR currently requires a local sample path.",
+        },
+      }));
+      return;
+    }
+
+    const page = document.pages.find((entry) => entry.pageNumber === pageNumber);
+    if (!page) return;
+
+    const key = `${document.loadedAt}:${pageNumber}`;
+    if (!force && attemptedOcrRef.current.has(key)) {
+      return;
+    }
+
+    attemptedOcrRef.current.add(key);
+    setOcrByPage((current) => ({ ...current, [pageNumber]: { state: "probing" } }));
+
+    const runtime = await probeFabricRunner();
+    if (!runtime) {
+      setOcrByPage((current) => ({
+        ...current,
+        [pageNumber]: {
+          state: "failed",
+          message: "Fabric Runner is not reachable on localhost.",
+        },
+      }));
+      return;
+    }
+
+    setFabricRunner(runtime);
+
+    try {
+      const job = await submitFabricRunnerOcrPageJob(runtime, {
+        pdfPath: document.source.localPath,
+        page: pageNumber,
+        language: "eng",
+      });
+
+      setOcrByPage((current) => ({ ...current, [pageNumber]: { state: "running" } }));
+
+      const finalJob = await pollFabricRunnerJob(runtime, job.id);
+
+      if (finalJob.status !== "completed") {
+        throw new Error(finalJob.error ?? "OCR job failed");
+      }
+
+      const text = finalJob.result?.text?.trim() ?? "";
+
+      if (!text) {
+        setOcrByPage((current) => ({
+          ...current,
+          [pageNumber]: {
+            state: "empty",
+            message: "OCR completed with no text result.",
+          },
+        }));
+        return;
+      }
+
+      setDocument((current) => {
+        if (!current) return current;
+        const pages = current.pages.map((entry) =>
+          entry.pageNumber === pageNumber
+            ? buildReaderPageFromText(
+                pageNumber,
+                entry.width,
+                entry.height,
+                text,
+                entry.title,
+              )
+            : entry,
+        );
+        const totalWords = pages.reduce((sum, entry) => sum + entry.wordCount, 0);
+        return {
+          ...current,
+          totalWords,
+          estimatedMinutes: Math.max(1, Math.round(totalWords / 155)),
+          pages,
+        };
+      });
+
+      setOcrByPage((current) => ({ ...current, [pageNumber]: { state: "completed" } }));
+    } catch (error) {
+      setOcrByPage((current) => ({
+        ...current,
+        [pageNumber]: {
+          state: "failed",
+          message: error instanceof Error ? error.message : "OCR failed",
+        },
+      }));
+    }
+  }, [document]);
+
+  const ensurePageImageForPage = useCallback(async (pageNumber: number) => {
+    if (pageImageByPage[pageNumber]) return;
+    if (!document?.source?.localPath) return;
+
+    const runtime = fabricRunner ?? (await probeFabricRunner());
+    if (!runtime) return;
+    setFabricRunner(runtime);
+
+    try {
+      const job = await submitFabricRunnerPdfPageImageJob(runtime, {
+        pdfPath: document.source.localPath,
+        page: pageNumber,
+        dpi: 180,
+      });
+      const finalJob = await pollFabricRunnerJob(runtime, job.id);
+      const dataUrl = finalJob.result?.dataUrl;
+      if (finalJob.status === "completed" && typeof dataUrl === "string" && dataUrl.length > 0) {
+        setPageImageByPage((current) => ({ ...current, [pageNumber]: dataUrl }));
+      }
+    } catch {
+      /* keep browser renderer as fallback */
+    }
+  }, [document, fabricRunner, pageImageByPage]);
+
+  useEffect(() => {
+    if (!currentPage || currentPage.hasText) return;
+    if (!document?.source?.localPath) return;
+    void runOcrForPage(currentPage.pageNumber);
+  }, [currentPage, document?.source?.localPath, runOcrForPage]);
+
+  useEffect(() => {
+    if (!currentPage || !document?.source?.localPath) return;
+    void ensurePageImageForPage(currentPage.pageNumber);
+  }, [currentPage, document?.source?.localPath, ensurePageImageForPage]);
 
   const documentProgress = useMemo(() => {
     if (!document || document.totalWords === 0) return 0;
@@ -2015,7 +2512,15 @@ export function App({ initialDocument }: AppProps) {
 
   if (!document) {
     return (
-      <Landing onFile={handleFile} loading={loading} progress={progress} error={error} theme={theme} toggleTheme={toggleTheme} />
+      <Landing
+        onFile={handleFile}
+        onOpenDemo={openDemo}
+        loading={loading}
+        progress={progress}
+        error={error}
+        theme={theme}
+        toggleTheme={toggleTheme}
+      />
     );
   }
 
@@ -2023,7 +2528,21 @@ export function App({ initialDocument }: AppProps) {
 
   return (
     <div className="linea-page linea-bg-document linea-frame">
-      <Header document={document} onUploadClick={() => fileInputRef.current?.click()} onLoadSample={(url, name) => void loadSamplePdf(url, name)} loadingSample={loadingSample} theme={theme} toggleTheme={toggleTheme} settings={settings} onSettingsChange={setSettings} voice={voice} documentProgress={documentProgress} />
+      <Header
+        document={document}
+        onUploadClick={() => fileInputRef.current?.click()}
+        onLoadSample={(url, name, options) => void loadSamplePdf(url, name, options)}
+        loadingSample={loadingSample}
+        theme={theme}
+        toggleTheme={toggleTheme}
+        settings={settings}
+        onSettingsChange={setSettings}
+        voice={voice}
+        documentProgress={documentProgress}
+        accessSnapshot={managedAccess.snapshot}
+        accessLoading={managedAccess.loading}
+        accessError={managedAccess.error}
+      />
 
       <input
         ref={fileInputRef}
@@ -2071,6 +2590,9 @@ export function App({ initialDocument }: AppProps) {
                 onStop={voice.stopSpeaking}
                 onReadSelection={handleReadSelection}
                 isRequesting={voice.activity.phase === "requesting"}
+                requestLabel={voice.activity.label}
+                requestDetail={voice.activity.detail}
+                requestStage={voice.activity.requestStage ?? null}
                 clipProgress={voice.playbackWindow.progress}
                 clipElapsedMs={voice.playbackWindow.elapsedMs}
                 clipDurationMs={voice.playbackWindow.durationMs}
@@ -2081,6 +2603,8 @@ export function App({ initialDocument }: AppProps) {
               <ReaderPanel
                 document={document}
                 page={currentPage}
+                pdfDoc={pdfDoc}
+                pageImageDataUrl={pageImageByPage[currentPage.pageNumber] ?? null}
                 selectedPage={selectedPage}
                 settings={settings}
                 activeParagraphId={voice.activeParagraphId}
@@ -2093,6 +2617,8 @@ export function App({ initialDocument }: AppProps) {
                 onSelectText={setSelectedPassage}
                 onSeekToChar={voice.seekToCharIndex}
                 onReadSelection={handleReadSelection}
+                onRunOcr={() => void runOcrForPage(currentPage.pageNumber, true)}
+                ocrStatus={ocrByPage[currentPage.pageNumber] ?? null}
               />
             </>
           )}
@@ -2122,6 +2648,7 @@ export function App({ initialDocument }: AppProps) {
           }}
         />
       )}
+      <DevInspectorSidebar />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import {
   type JobMetadata,
   type VoxCapabilities,
 } from "@voxd/client";
+import { recordDevInspectorEntry } from "@/lib/dev-inspector";
 
 export type VoxCompanionCapabilities = VoxCapabilities;
 
@@ -14,33 +15,91 @@ export type VoxCompanionRuntime = {
 
 export type VoxCompanionAlignment = AlignmentResult;
 
-const LOCAL_PORT_CANDIDATES = [43115, 43116, 43117, 43118, 43119, 43120];
+const LOCAL_PORT_CANDIDATES = [52137, 52138, 52139, 52140, 52141, 52142, 52143, 52144, 52145, 52146, 52147];
 const CACHE_KEY = "linea:vox-companion-base-url";
 
 async function probeBaseUrl(baseUrl: string): Promise<VoxCompanionRuntime | null> {
+  const startedAt = performance.now();
+  recordDevInspectorEntry({
+    source: "voxd",
+    action: "probe",
+    status: "started",
+    method: "GET",
+    url: `${baseUrl}/health`,
+  });
   try {
     const client = createVoxdClient({ baseUrl, probeTimeout: 1500, pollInterval: 1000 });
     const isAvailable = await client.probe();
 
     if (!isAvailable) {
+      recordDevInspectorEntry({
+        source: "voxd",
+        action: "probe",
+        status: "failed",
+        method: "GET",
+        url: `${baseUrl}/health`,
+        durationMs: Math.round(performance.now() - startedAt),
+        detail: { reason: "probe-failed" },
+      });
       return null;
     }
 
     const health = await client.health();
     if (!health.ok || health.service !== "vox-companion") {
+      recordDevInspectorEntry({
+        source: "voxd",
+        action: "probe",
+        status: "failed",
+        method: "GET",
+        url: `${baseUrl}/health`,
+        durationMs: Math.round(performance.now() - startedAt),
+        detail: { reason: "invalid-health", service: health.service, ok: health.ok },
+      });
       return null;
     }
 
     const capabilities = await client.capabilities();
     if (!capabilities.running) {
+      recordDevInspectorEntry({
+        source: "voxd",
+        action: "capabilities",
+        status: "failed",
+        method: "GET",
+        url: `${baseUrl}/capabilities`,
+        durationMs: Math.round(performance.now() - startedAt),
+        detail: { reason: "not-running" },
+      });
       return null;
     }
+
+    recordDevInspectorEntry({
+      source: "voxd",
+      action: "capabilities",
+      status: "succeeded",
+      method: "GET",
+      url: `${baseUrl}/capabilities`,
+      durationMs: Math.round(performance.now() - startedAt),
+      detail: {
+        alignment: capabilities.features?.alignment ?? false,
+        local_asr: capabilities.features?.local_asr ?? false,
+        streaming_progress: capabilities.features?.streaming_progress ?? false,
+      },
+    });
 
     return {
       baseUrl,
       capabilities,
     };
   } catch {
+    recordDevInspectorEntry({
+      source: "voxd",
+      action: "probe",
+      status: "failed",
+      method: "GET",
+      url: `${baseUrl}/health`,
+      durationMs: Math.round(performance.now() - startedAt),
+      detail: { reason: "exception" },
+    });
     return null;
   }
 }
@@ -107,6 +166,19 @@ export async function alignWithVoxCompanion(
     pollIntervalMs?: number;
   },
 ) {
+  const startedAt = performance.now();
+  recordDevInspectorEntry({
+    source: "voxd",
+    action: "align",
+    status: "started",
+    method: "POST",
+    url: `${runtime.baseUrl}/jobs`,
+    detail: {
+      cacheKey: input.cacheKey ?? null,
+      pageNumber: input.pageNumber ?? null,
+      paragraphId: input.paragraphId ?? null,
+    },
+  });
   const client = createVoxdClient({
     baseUrl: runtime.baseUrl,
     pollInterval: options?.pollIntervalMs ?? 1000,
@@ -128,7 +200,20 @@ export async function alignWithVoxCompanion(
   });
 
   return await Promise.race([
-    alignmentPromise,
+    alignmentPromise.then((result) => {
+      recordDevInspectorEntry({
+        source: "voxd",
+        action: "align",
+        status: result ? "succeeded" : "failed",
+        method: "POST",
+        url: `${runtime.baseUrl}/jobs`,
+        durationMs: Math.round(performance.now() - startedAt),
+        detail: result
+          ? { wordCount: result.words.length, durationMs: result.durationMs }
+          : { reason: "no-result" },
+      });
+      return result;
+    }),
     new Promise<null>((resolve, reject) => {
       const timeoutId = window.setTimeout(() => resolve(null), timeoutMs);
 
@@ -137,6 +222,15 @@ export async function alignWithVoxCompanion(
           "abort",
           () => {
             window.clearTimeout(timeoutId);
+            recordDevInspectorEntry({
+              source: "voxd",
+              action: "align",
+              status: "failed",
+              method: "POST",
+              url: `${runtime.baseUrl}/jobs`,
+              durationMs: Math.round(performance.now() - startedAt),
+              detail: { reason: "aborted" },
+            });
             reject(new DOMException("Aborted", "AbortError"));
           },
           { once: true },

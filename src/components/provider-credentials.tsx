@@ -5,15 +5,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { VoxCompanionRuntime } from "@/lib/vox-companion";
 import {
-  deleteVoxCredential,
-  fetchVoxCredentials,
-  saveVoxCredential,
-  type VoxCredentialStatus,
-  type VoxProviderId,
-} from "@/lib/vox";
+  deleteLineaVoiceCredential,
+  fetchLineaVoiceCredentials,
+  saveLineaVoiceCredential,
+  type LineaVoiceCredentialStatus,
+  type LineaVoiceProviderId,
+} from "@/lib/linea-voice";
 
 const providerMeta: Record<
-  VoxProviderId,
+  LineaVoiceProviderId,
   {
     label: string;
     placeholder: string;
@@ -90,35 +90,41 @@ const additionalProviders = [
 
 const sourceLabels = {
   environment: "Environment variable",
+  managed: "Managed deployment secret",
   keychain: "OS secure storage",
   "settings-file": "Legacy settings file",
 } as const;
 
 const sourceShortLabels = {
   environment: "Env var",
+  managed: "Managed",
   keychain: "Saved",
   "settings-file": "Imported",
 } as const;
 
 const supportedProviders = featuredProviders.filter((provider) => provider.supported);
 
-function toStatusMap(credentials: VoxCredentialStatus[]) {
+function toStatusMap(credentials: LineaVoiceCredentialStatus[]) {
   return credentials.reduce(
     (map, credential) => ({
       ...map,
       [credential.provider]: credential,
     }),
-    {} as Partial<Record<VoxProviderId, VoxCredentialStatus>>,
+    {} as Partial<Record<LineaVoiceProviderId, LineaVoiceCredentialStatus>>,
   );
 }
 
-function describeCredential(credential: VoxCredentialStatus | undefined) {
+function describeCredential(credential: LineaVoiceCredentialStatus | undefined) {
   if (!credential?.configured) {
     return "No key saved yet.";
   }
 
   if (credential.source === "environment") {
     return "Loaded from an environment variable. Remove it from your shell to change it here.";
+  }
+
+  if (credential.source === "managed") {
+    return "Managed by the deployment. Sign in with an approved account to use shared voice.";
   }
 
   if (credential.source === "settings-file") {
@@ -139,19 +145,19 @@ export function ProviderCredentials({
   variant?: "card" | "plain";
   localRuntime?: VoxCompanionRuntime | null;
 }) {
-  const [credentials, setCredentials] = useState<Partial<Record<VoxProviderId, VoxCredentialStatus>>>(
+  const [credentials, setCredentials] = useState<Partial<Record<LineaVoiceProviderId, LineaVoiceCredentialStatus>>>(
     {},
   );
-  const [drafts, setDrafts] = useState<Record<VoxProviderId, string>>({
+  const [drafts, setDrafts] = useState<Record<LineaVoiceProviderId, string>>({
     openai: "",
     elevenlabs: "",
   });
   const [loading, setLoading] = useState(true);
-  const [busyProvider, setBusyProvider] = useState<VoxProviderId | null>(null);
+  const [busyProvider, setBusyProvider] = useState<LineaVoiceProviderId | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [showMoreProviders, setShowMoreProviders] = useState(false);
-  const [activeProvider, setActiveProvider] = useState<VoxProviderId>("openai");
+  const [activeProvider, setActiveProvider] = useState<LineaVoiceProviderId>("openai");
 
   useEffect(() => {
     void loadCredentials();
@@ -162,7 +168,7 @@ export function ProviderCredentials({
     setError("");
 
     try {
-      const nextCredentials = await fetchVoxCredentials();
+      const nextCredentials = await fetchLineaVoiceCredentials();
       setCredentials(toStatusMap(nextCredentials));
     } catch (caughtError) {
       setError(
@@ -173,7 +179,7 @@ export function ProviderCredentials({
     }
   };
 
-  const handleSave = async (provider: VoxProviderId) => {
+  const handleSave = async (provider: LineaVoiceProviderId) => {
     const apiKey = drafts[provider].trim();
 
     if (!apiKey) {
@@ -186,7 +192,7 @@ export function ProviderCredentials({
     setMessage("");
 
     try {
-      const credential = await saveVoxCredential(provider, apiKey);
+      const credential = await saveLineaVoiceCredential(provider, apiKey);
       setCredentials((current) => ({
         ...current,
         [provider]: credential,
@@ -204,13 +210,13 @@ export function ProviderCredentials({
     }
   };
 
-  const handleDelete = async (provider: VoxProviderId) => {
+  const handleDelete = async (provider: LineaVoiceProviderId) => {
     setBusyProvider(provider);
     setError("");
     setMessage("");
 
     try {
-      const credential = await deleteVoxCredential(provider);
+      const credential = await deleteLineaVoiceCredential(provider);
       setCredentials((current) => ({
         ...current,
         [provider]: credential,

@@ -4,6 +4,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import express from "express";
 
+import { createAccessRouter } from "./access/routes";
+import { LineaAccessService } from "./access/service";
 import { loadServerEnv } from "./load-env";
 import { createVoxRouter } from "./vox/routes";
 
@@ -19,8 +21,11 @@ const port = Number(process.env.PORT ?? 4173);
 
 const template = await fs.readFile(path.resolve(clientDist, "index.html"), "utf-8");
 const app = express();
+const access = new LineaAccessService();
 
-app.use("/api/vox", createVoxRouter());
+app.use(access.middleware());
+app.use("/api/access", createAccessRouter(access));
+app.use("/api/vox", createVoxRouter(access));
 app.use(
   express.static(clientDist, {
     index: false,

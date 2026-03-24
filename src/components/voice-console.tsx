@@ -3,7 +3,7 @@ import { Mic, MicOff, Pause, Play, Square, Waves } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { VoxVoice } from "@/lib/vox";
+import type { LineaVoice } from "@/lib/linea-voice";
 
 type VoiceConsoleProps = {
   recognitionSupported: boolean;
@@ -14,7 +14,7 @@ type VoiceConsoleProps = {
   setRate: (rate: number) => void;
   selectedVoice: string;
   setSelectedVoice: (name: string) => void;
-  voices: VoxVoice[];
+  voices: LineaVoice[];
   lastCommand: string;
   activeParagraphId: string | null;
   onSpeak: () => void;

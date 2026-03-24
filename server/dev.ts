@@ -4,6 +4,8 @@ import path from "node:path";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 
+import { createAccessRouter } from "./access/routes";
+import { LineaAccessService } from "./access/service";
 import { loadServerEnv } from "./load-env";
 import { createVoxRouter } from "./vox/routes";
 
@@ -15,6 +17,7 @@ const root = process.cwd();
 loadServerEnv(root);
 const app = express();
 const port = Number(process.env.PORT ?? 5173);
+const access = new LineaAccessService();
 
 const vite = await createViteServer({
   root,
@@ -24,7 +27,9 @@ const vite = await createViteServer({
   },
 });
 
-app.use("/api/vox", createVoxRouter());
+app.use(access.middleware());
+app.use("/api/access", createAccessRouter(access));
+app.use("/api/vox", createVoxRouter(access));
 app.use(vite.middlewares);
 
 app.use(async (req, res, next) => {

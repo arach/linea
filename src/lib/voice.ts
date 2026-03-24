@@ -8,16 +8,17 @@ import {
   type VoxCompanionRuntime,
 } from "@/lib/vox-companion";
 import {
-  alignVox,
-  fetchVoxCapabilities,
-  fetchVoxProviders,
-  fetchVoxVoices,
-  synthesizeVox,
-  type VoxCapabilities,
-  type VoxProviderId,
-  type VoxProviderStatus,
-  type VoxVoice,
-} from "@/lib/vox";
+  alignLineaVoice,
+  fetchLineaVoiceCapabilities,
+  fetchLineaVoiceProviders,
+  fetchLineaVoiceVoices,
+  synthesizeLineaVoice,
+  type LineaVoiceCapabilities,
+  type LineaVoiceProviderId,
+  type LineaVoiceProviderStatus,
+  type LineaVoice,
+} from "@/lib/linea-voice";
+import { recordDevInspectorEntry } from "@/lib/dev-inspector";
 import { clamp } from "@/lib/utils";
 
 type VoiceConsoleOptions = {
@@ -46,13 +47,16 @@ type VoiceActivityPhase =
   | "ended"
   | "error";
 
+type VoiceRequestStage = "requesting" | "processing" | "downloading";
+
 type VoiceActivity = {
   phase: VoiceActivityPhase;
+  requestStage?: VoiceRequestStage | null;
   label: string;
   detail: string;
   scopeLabel: string | null;
   wordCount: number | null;
-  provider: VoxProviderId | null;
+  provider: LineaVoiceProviderId | null;
   voice: string | null;
   cacheKey: string | null;
   audioUrl: string | null;
@@ -120,6 +124,13 @@ function debugVoice(event: string, detail?: Record<string, unknown>) {
     return;
   }
 
+  recordDevInspectorEntry({
+    source: "ora",
+    action: event,
+    status: "info",
+    detail,
+  });
+
   if (detail) {
     console.info(`[linea:voice] ${event}`, detail);
     return;
@@ -142,11 +153,11 @@ export function useVoiceConsole({
   selectedPage,
   onSelectPage,
 }: VoiceConsoleOptions) {
-  const [providers, setProviders] = useState<VoxProviderStatus[]>([]);
-  const [capabilities, setCapabilities] = useState<VoxCapabilities>({ alignment: false });
+  const [providers, setProviders] = useState<LineaVoiceProviderStatus[]>([]);
+  const [capabilities, setCapabilities] = useState<LineaVoiceCapabilities>({ alignment: false });
   const [localRuntime, setLocalRuntime] = useState<VoxCompanionRuntime | null>(null);
-  const [selectedProvider, setSelectedProvider] = useState<VoxProviderId>("openai");
-  const [voicesByProvider, setVoicesByProvider] = useState<Partial<Record<VoxProviderId, VoxVoice[]>>>({});
+  const [selectedProvider, setSelectedProvider] = useState<LineaVoiceProviderId>("openai");
+  const [voicesByProvider, setVoicesByProvider] = useState<Partial<Record<LineaVoiceProviderId, LineaVoice[]>>>({});
   const [selectedVoice, setSelectedVoice] = useState("");
   const [rate, setRate] = useState(1);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -192,6 +203,8 @@ export function useVoiceConsole({
   const voices = voicesByProvider[selectedProvider] ?? [];
   const selectedProviderMeta =
     providers.find((provider) => provider.id === selectedProvider) ?? null;
+  const selectedVoiceMeta =
+    voices.find((voice) => voice.id === selectedVoice) ?? voices[0] ?? null;
   const activeParagraph = useMemo(() => {
     const pageForSession =
       pages.find((page) => page.pageNumber === (speechSession?.pageNumber ?? selectedPage)) ??
@@ -218,7 +231,7 @@ export function useVoiceConsole({
   }, [pages, selectedPage, selectedPageData, speechSession, spokenCharacterIndex]);
 
   const refreshProviders = async () => {
-    const nextProviders = await fetchVoxProviders();
+    const nextProviders = await fetchLineaVoiceProviders();
     setProviders(nextProviders);
 
     const preferred =
@@ -238,8 +251,8 @@ export function useVoiceConsole({
     void (async () => {
       try {
         const [nextProviders, nextCapabilities] = await Promise.all([
-          fetchVoxProviders(),
-          fetchVoxCapabilities().catch(() => ({ alignment: false })),
+          fetchLineaVoiceProviders(),
+          fetchLineaVoiceCapabilities().catch(() => ({ alignment: false })),
         ]);
         debugVoice("providers-loaded", {
           providers: nextProviders.map((provider) => ({
@@ -287,7 +300,7 @@ export function useVoiceConsole({
 
     void (async () => {
       try {
-        const nextVoices = await fetchVoxVoices(selectedProvider);
+        const nextVoices = await fetchLineaVoiceVoices(selectedProvider);
         debugVoice("voices-loaded", {
           provider: selectedProvider,
           count: nextVoices.length,
@@ -465,8 +478,9 @@ export function useVoiceConsole({
           : session.paragraphId?.replace("page-", "p") ?? "Selection";
     setActivity({
       phase: "requesting",
-      label: `Requesting ${session.kind}`,
-      detail: `Preparing ${scopeLabel.toLowerCase()} for speech with ${nextWordCount.toLocaleString()} words.`,
+      requestStage: "requesting",
+      label: "Requesting audio",
+      detail: `Sending ${scopeLabel.toLowerCase()} for speech with ${nextWordCount.toLocaleString()} words.`,
       scopeLabel,
       wordCount: nextWordCount,
       provider: selectedProvider,
@@ -489,10 +503,17 @@ export function useVoiceConsole({
     try {
       const runtime = await discoverVoxCompanion();
       setLocalRuntime(runtime);
+      setActivity((current) => ({
+        ...current,
+        phase: "requesting",
+        requestStage: "processing",
+        label: "Generating audio",
+        detail: `Preparing ${scopeLabel.toLowerCase()} with ${selectedProviderMeta.label}.`,
+      }));
 
       const abortController = new AbortController();
       requestAbortRef.current = abortController;
-      const response = await synthesizeVox({
+      const response = await synthesizeLineaVoice({
         provider: selectedProvider,
         text: session.text,
         voice: voiceId,
@@ -514,11 +535,12 @@ export function useVoiceConsole({
         audioUrl: response.audioUrl,
       });
       setActivity({
-        phase: "ready",
-        label: response.cached ? "Audio ready from cache" : "Audio generated",
+        phase: "requesting",
+        requestStage: "downloading",
+        label: response.cached ? "Loading cached audio" : "Downloading audio",
         detail: response.cached
-          ? "Serving a cached clip for this exact text, voice, and rate."
-          : "Generated a fresh clip and stored it in the local cache.",
+          ? "Loading the cached clip into the player."
+          : "Receiving the generated clip and preparing playback.",
         scopeLabel,
         wordCount: nextWordCount,
         provider: selectedProvider,
@@ -570,6 +592,7 @@ export function useVoiceConsole({
         onSelectPage(session.pageNumber);
         setActivity({
           phase: "playing",
+          requestStage: null,
           label: `Playing ${session.kind}`,
           detail: response.cached
             ? "Playback started from cached audio."
@@ -602,7 +625,7 @@ export function useVoiceConsole({
                 });
                 return null;
               })
-            : alignVox(response.cacheKey).catch((err) => {
+            : alignLineaVoice(response.cacheKey).catch((err) => {
                 debugVoice("alignment-failed", { error: err instanceof Error ? err.message : "unknown" });
                 return null;
               });
@@ -623,6 +646,7 @@ export function useVoiceConsole({
         setActivity((current) => ({
           ...current,
           phase: "paused",
+          requestStage: null,
           label: "Paused",
           detail: "Playback paused. Resume will continue the current clip.",
         }));
@@ -653,6 +677,7 @@ export function useVoiceConsole({
         setActivity((current) => ({
           ...current,
           phase: "ended",
+          requestStage: null,
           label: "Finished",
           detail: "Playback completed.",
         }));
@@ -674,6 +699,7 @@ export function useVoiceConsole({
         setVoiceError("Audio playback failed.");
         setActivity({
           phase: "error",
+          requestStage: null,
           label: "Playback failed",
           detail: "The audio clip was generated, but the browser could not play it.",
           scopeLabel,
@@ -701,6 +727,7 @@ export function useVoiceConsole({
         setActivity((current) => ({
           ...current,
           phase: "stopped",
+          requestStage: null,
           label: "Canceled",
           detail: "Synthesis request canceled before audio was generated.",
         }));
@@ -715,6 +742,7 @@ export function useVoiceConsole({
       setVoiceError(error instanceof Error ? error.message : "Synthesis failed.");
       setActivity({
         phase: "error",
+        requestStage: null,
         label: "Synthesis failed",
         detail: error instanceof Error ? error.message : "The provider failed to return audio.",
         scopeLabel,
@@ -1010,9 +1038,11 @@ export function useVoiceConsole({
   return {
     providers,
     selectedProvider,
+    selectedProviderMeta,
     setSelectedProvider,
     voices,
     selectedVoice,
+    selectedVoiceMeta,
     setSelectedVoice,
     rate,
     setRate,
@@ -1063,7 +1093,7 @@ export function useVoiceConsole({
         pageNumber: null,
         paragraphId: null,
       });
-      setCapabilities(await fetchVoxCapabilities().catch(() => ({ alignment: false })));
+      setCapabilities(await fetchLineaVoiceCapabilities().catch(() => ({ alignment: false })));
       await refreshProviders();
     },
   };

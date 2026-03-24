@@ -28,6 +28,10 @@ export type ReaderDocument = {
   totalWords: number;
   estimatedMinutes: number;
   loadedAt: string;
+  source?: {
+    url?: string;
+    localPath?: string;
+  };
   pages: ReaderPage[];
 };
 
@@ -172,9 +176,59 @@ function pickTitle(lines: string[], pageNumber: number) {
   return candidate ?? `Page ${pageNumber}`;
 }
 
+export function buildReaderPageFromText(
+  pageNumber: number,
+  width: number,
+  height: number,
+  rawText: string,
+  fallbackTitle?: string,
+) {
+  const rawLines = rawText
+    .split(/\r?\n/)
+    .map((line) => normalizeText(line))
+    .filter(Boolean);
+  const paragraphText = splitIntoParagraphs(rawLines);
+  const paragraphs = createParagraphOffsets(pageNumber, paragraphText);
+
+  const classifications = classifyPage(paragraphs, pageNumber);
+  for (let i = 0; i < paragraphs.length; i += 1) {
+    const c = classifications[i];
+    if (c.skip) {
+      paragraphs[i].skip = { reason: c.reason!, confidence: c.confidence };
+    } else if (c.spans.length > 0) {
+      paragraphs[i].dimSpans = c.spans.map((s) => ({
+        start: s.start,
+        end: s.end,
+        reason: s.reason,
+      }));
+    }
+  }
+
+  const text = paragraphs.map((paragraph) => paragraph.text).join("\n\n");
+  const wordCount = countWords(text);
+  const charCount = text.length;
+
+  return {
+    pageNumber,
+    title: fallbackTitle ?? pickTitle(rawLines, pageNumber),
+    preview:
+      paragraphs[0]?.text.slice(0, 180) ?? "No extractable text detected on this page yet.",
+    text,
+    lines: rawLines,
+    paragraphs,
+    wordCount,
+    charCount,
+    width,
+    height,
+    density: charCount / Math.max(width * height, 1),
+    hasText: wordCount > 0,
+  } satisfies ReaderPage;
+}
+
 export async function loadReaderDocument(
   file: File,
   onProgress?: (progress: ExtractionProgress) => void,
+  source?: ReaderDocument["source"],
 ) {
   onProgress?.({
     loadedPages: 0,
@@ -256,6 +310,7 @@ export async function loadReaderDocument(
     totalWords,
     estimatedMinutes: Math.max(1, Math.round(totalWords / LISTENING_WPM)),
     loadedAt: new Date().toISOString(),
+    source,
     pages,
   } satisfies ReaderDocument;
 }

@@ -1,11 +1,11 @@
 import { renderToString } from "react-dom/server";
 
-import { App } from "@/app";
+import { AppShell } from "@/app-shell";
 
 export async function render(_url: string) {
   return {
     head: "",
-    html: renderToString(<App initialDocument={null} />),
+    html: renderToString(<AppShell initialDocument={null} />),
     initialState: null,
   };
 }

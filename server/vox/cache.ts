@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { VoxProviderId, VoxSynthesisRequest } from "../../src/lib/vox";
+import type { LineaVoiceProviderId, LineaVoiceSynthesisRequest } from "../../src/lib/linea-voice";
 import type { VoxAlignment, VoxCacheEntry } from "./types";
 
 const CACHE_ROOT = path.join(os.homedir(), ".linea", "vox-cache");
@@ -18,7 +18,7 @@ export class VoxCache {
   }
 
   generateKey(input: {
-    provider: VoxProviderId;
+    provider: LineaVoiceProviderId;
     voice: string;
     rate: number;
     text: string;
@@ -63,12 +63,12 @@ export class VoxCache {
 
   async set(input: {
     cacheKey: string;
-    provider: VoxProviderId;
+    provider: LineaVoiceProviderId;
     voice: string;
     rate: number;
     text: string;
     audio: Buffer;
-    source?: VoxSynthesisRequest["source"];
+    source?: LineaVoiceSynthesisRequest["source"];
   }) {
     await this.ensureCacheDir();
 

@@ -2,7 +2,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type { VoxCredentialSource, VoxCredentialStatus, VoxProviderId } from "../../src/lib/vox";
+import type {
+  LineaVoiceCredentialSource,
+  LineaVoiceCredentialStatus,
+  LineaVoiceProviderId,
+} from "../../src/lib/linea-voice";
 
 type ProviderSettings = {
   apiKey?: string;
@@ -24,7 +28,7 @@ let cachedLineaSettings: AppSettings | null | undefined;
 let cachedSpeakEasySettings: AppSettings | null | undefined;
 
 const keychainService = "linea.vox";
-const keychainNames: Record<VoxProviderId, string> = {
+const keychainNames: Record<LineaVoiceProviderId, string> = {
   openai: "openai-api-key",
   elevenlabs: "elevenlabs-api-key",
 };
@@ -71,7 +75,7 @@ function getProviderSetting(
   return "";
 }
 
-function getEnvApiKey(provider: VoxProviderId) {
+function getEnvApiKey(provider: LineaVoiceProviderId) {
   if (provider === "openai") {
     return process.env.OPENAI_API_KEY?.trim() ?? "";
   }
@@ -79,7 +83,15 @@ function getEnvApiKey(provider: VoxProviderId) {
   return process.env.ELEVENLABS_API_KEY?.trim() ?? "";
 }
 
-function getLegacyApiKey(provider: VoxProviderId) {
+function getManagedEnvApiKey(provider: LineaVoiceProviderId) {
+  if (provider === "openai") {
+    return process.env.LINEA_MANAGED_OPENAI_API_KEY?.trim() ?? "";
+  }
+
+  return process.env.LINEA_MANAGED_ELEVENLABS_API_KEY?.trim() ?? "";
+}
+
+function getLegacyApiKey(provider: LineaVoiceProviderId) {
   return getProviderSetting(provider, "apiKey").trim();
 }
 
@@ -102,7 +114,7 @@ function getBunSecrets() {
   return runtime.Bun?.secrets ?? null;
 }
 
-async function getKeychainApiKey(provider: VoxProviderId) {
+async function getKeychainApiKey(provider: LineaVoiceProviderId) {
   const secrets = getBunSecrets();
 
   if (!secrets) {
@@ -116,10 +128,10 @@ async function getKeychainApiKey(provider: VoxProviderId) {
 }
 
 function toCredentialStatus(
-  provider: VoxProviderId,
-  source: VoxCredentialSource,
+  provider: LineaVoiceProviderId,
+  source: LineaVoiceCredentialSource,
   value: string,
-): VoxCredentialStatus {
+): LineaVoiceCredentialStatus {
   const normalizedValue = value.trim();
 
   return {
@@ -130,7 +142,31 @@ function toCredentialStatus(
   };
 }
 
-export async function getProviderApiKey(provider: VoxProviderId) {
+export async function getProviderApiKey(provider: LineaVoiceProviderId) {
+  return getProviderApiKeyWithScope(provider, {
+    allowManaged: false,
+    allowLocal: true,
+  });
+}
+
+export async function getProviderApiKeyWithScope(
+  provider: LineaVoiceProviderId,
+  options?: {
+    allowManaged?: boolean;
+    allowLocal?: boolean;
+  },
+) {
+  if (options?.allowManaged) {
+    const managedKey = getManagedEnvApiKey(provider);
+    if (managedKey) {
+      return managedKey;
+    }
+  }
+
+  if (options?.allowLocal === false) {
+    return "";
+  }
+
   const envKey = getEnvApiKey(provider);
   if (envKey) {
     return envKey;
@@ -144,7 +180,24 @@ export async function getProviderApiKey(provider: VoxProviderId) {
   return getLegacyApiKey(provider);
 }
 
-export async function getProviderCredentialStatus(provider: VoxProviderId): Promise<VoxCredentialStatus> {
+export async function getProviderCredentialStatus(
+  provider: LineaVoiceProviderId,
+  options?: {
+    allowManaged?: boolean;
+    allowLocal?: boolean;
+  },
+): Promise<LineaVoiceCredentialStatus> {
+  if (options?.allowManaged) {
+    const managedKey = getManagedEnvApiKey(provider);
+    if (managedKey) {
+      return toCredentialStatus(provider, "managed", managedKey);
+    }
+  }
+
+  if (options?.allowLocal === false) {
+    return toCredentialStatus(provider, options?.allowManaged ? "managed" : null, "");
+  }
+
   const envKey = getEnvApiKey(provider);
   if (envKey) {
     return toCredentialStatus(provider, "environment", envKey);
@@ -163,7 +216,7 @@ export async function getProviderCredentialStatus(provider: VoxProviderId): Prom
   return toCredentialStatus(provider, null, "");
 }
 
-export async function setProviderApiKey(provider: VoxProviderId, apiKey: string) {
+export async function setProviderApiKey(provider: LineaVoiceProviderId, apiKey: string) {
   const secrets = getBunSecrets();
 
   if (!secrets) {
@@ -177,7 +230,7 @@ export async function setProviderApiKey(provider: VoxProviderId, apiKey: string)
   });
 }
 
-export async function deleteProviderApiKey(provider: VoxProviderId) {
+export async function deleteProviderApiKey(provider: LineaVoiceProviderId) {
   const secrets = getBunSecrets();
 
   if (!secrets) {
