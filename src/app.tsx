@@ -70,6 +70,7 @@ import {
 } from "@/lib/dev-inspector";
 import { ClerkAccessControls } from "@/components/clerk-access-controls";
 import { ManagedAccessPanel } from "@/components/managed-access-panel";
+import { getClerkPublishableKey } from "@/lib/clerk-provider";
 import type { LineaManagedAccessSnapshot } from "@/lib/linea-access";
 import { useLineaAccessSnapshot } from "@/lib/use-linea-access";
 import { formatCount, formatMinutes } from "@/lib/utils";
@@ -86,6 +87,21 @@ function currentUrl() {
 
 function ManagedAuthRedirect() {
   const redirectUrl = currentUrl();
+  const hasClerkProvider = Boolean(getClerkPublishableKey());
+
+  if (!hasClerkProvider) {
+    return (
+      <div className="linea-page linea-bg-document linea-frame">
+        <div className="linea-loading-screen">
+          <Lock size={18} />
+          <h2>Sign-in is still initializing</h2>
+          <p className="linea-auth-copy">
+            This deployment is missing the client-side Clerk publishable key in the current build.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="linea-page linea-bg-document linea-frame">
@@ -2486,6 +2502,7 @@ export function App({ initialDocument }: AppProps) {
     !managedAccess.loading &&
     managedAccess.snapshot.enabled &&
     managedAccess.snapshot.clerkConfigured &&
+    Boolean(getClerkPublishableKey()) &&
     managedAccess.snapshot.access.status === "signed-out";
 
   const voice = useVoiceConsole({
