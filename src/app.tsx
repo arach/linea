@@ -58,8 +58,6 @@ import {
   pollFabricRunnerJob,
   probeFabricRunner,
   submitFabricRunnerOcrPageJob,
-  submitFabricRunnerPdfPageImageJob,
-  type FabricRunnerRuntime,
 } from "@/lib/fabric-runner";
 import {
   clearDevInspectorEntries,
@@ -95,36 +93,235 @@ function useStableRedirectUrl() {
   return redirectUrl;
 }
 
+const FEATURED_DEMO_OPTIONS = [
+  {
+    file: "attention-is-all-you-need.pdf",
+    label: "Attention Is All You Need",
+    description: "Start with a dense research paper and see how Linea handles structure, sections, and reading pace.",
+    eyebrow: "Research paper",
+    icon: Sparkles,
+  },
+  {
+    file: "whitepaper.pdf",
+    label: "White Paper",
+    description: "Open a polished long-form narrative to feel the calmer reading surface and voice flow together.",
+    eyebrow: "Narrative demo",
+    icon: BookOpen,
+  },
+  {
+    file: "book-of-verses.pdf",
+    label: "Book of Verses",
+    description: "Try a scanned document to preview the OCR-first path and how Linea treats irregular source material.",
+    eyebrow: "Scan + OCR",
+    icon: ScanSearch,
+  },
+] as const;
+
 function ManagedAuthRedirect() {
   const redirectUrl = useStableRedirectUrl();
   const hasClerkProvider = Boolean(getClerkPublishableKey());
+  const title = hasClerkProvider ? "Taking you to sign in." : "Sign-in is still initializing.";
+  const body = hasClerkProvider
+    ? "Linea is handing this session off to Clerk for secure account verification. After sign-in, you will land right back in your reading space."
+    : "This deployment is missing the client-side Clerk publishable key in the current build, so the sign-in flow cannot start yet.";
+  const stepCopy = hasClerkProvider
+    ? [
+        {
+          label: "Secure handoff",
+          detail: "We verify access first, then open Clerk in a dedicated sign-in flow.",
+          icon: Lock,
+        },
+        {
+          label: "Fast redirect",
+          detail: "Your browser should move to Clerk almost immediately.",
+          icon: ArrowRight,
+        },
+        {
+          label: "Return here",
+          detail: "Once you finish, Clerk sends you straight back into Linea.",
+          icon: Sparkles,
+        },
+      ]
+    : [
+        {
+          label: "Missing client key",
+          detail: "The browser bundle needs a Clerk publishable key before it can render auth.",
+          icon: Lock,
+        },
+        {
+          label: "Server is ready",
+          detail: "Managed access and the API are configured, so only the client build needs attention.",
+          icon: AudioLines,
+        },
+        {
+          label: "Next fix",
+          detail: "Redeploy with the live Clerk env in the client bundle and this screen will disappear.",
+          icon: Sparkles,
+        },
+      ];
 
   if (!hasClerkProvider) {
     return (
-      <div className="linea-page linea-bg-document linea-frame">
-        <div className="linea-loading-screen">
-          <Lock size={18} />
-          <h2>Sign-in is still initializing</h2>
-          <p className="linea-auth-copy">
-            This deployment is missing the client-side Clerk publishable key in the current build.
-          </p>
+      <div className="min-h-screen overflow-hidden bg-[#f7f0e6] text-ink">
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute left-[9%] top-[14%] h-56 w-56 rounded-full bg-accent/10 blur-[92px]" />
+          <div className="absolute bottom-[10%] right-[8%] h-72 w-72 rounded-full bg-[#d9c2ad]/30 blur-[112px]" />
+        </div>
+        <div className="relative flex min-h-screen items-center justify-center px-5 py-14 sm:px-8">
+          <div className="relative w-full max-w-[1040px] overflow-hidden rounded-[34px] border border-black/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,242,235,0.96))] shadow-[0_40px_120px_-64px_rgba(0,0,0,0.38)]">
+            <div className="absolute inset-x-0 top-0 h-36 bg-[radial-gradient(circle_at_top,rgba(212,115,74,0.2),transparent_72%)]" />
+            <div className="grid gap-8 px-6 py-7 sm:px-8 lg:grid-cols-[minmax(0,1.1fr)_320px] lg:px-10 lg:py-10">
+              <div className="space-y-6">
+                <div className="inline-flex items-center gap-2 rounded-full border border-accent/12 bg-accent/8 px-3 py-1.5">
+                  <Lock size={12} className="text-accent" />
+                  <span className="text-[10px] font-mono font-semibold uppercase tracking-[0.18em] text-accent">
+                    Account handoff
+                  </span>
+                </div>
+                <div className="space-y-4">
+                  <h1 className="max-w-[14ch] font-serif text-[2.6rem] leading-[0.94] tracking-[-0.05em] text-ink sm:text-[3.55rem]">
+                    {title}
+                  </h1>
+                  <p className="max-w-[36rem] text-[1rem] leading-[1.85] text-ink/64">
+                    {body}
+                  </p>
+                </div>
+                <div className="rounded-[24px] border border-black/8 bg-white/72 p-5 shadow-[0_24px_60px_-48px_rgba(0,0,0,0.34)]">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-[16px] bg-accent/12 text-accent">
+                      {hasClerkProvider ? <LoaderCircle size={18} className="animate-spin" /> : <Lock size={18} />}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/48">
+                        {hasClerkProvider ? "Redirect in progress" : "Waiting on configuration"}
+                      </div>
+                      <div className="mt-1 text-[1rem] font-medium text-ink">
+                        {hasClerkProvider ? "Clerk is opening in a secure auth flow." : "This build needs one more client-side env."}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-black/6">
+                    <div className={`h-full rounded-full bg-accent ${hasClerkProvider ? "w-2/3 animate-pulse" : "w-1/3"}`} />
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-[28px] border border-black/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.86),rgba(247,240,233,0.92))] p-5 shadow-[0_30px_80px_-62px_rgba(0,0,0,0.4)]">
+                <div className="space-y-3">
+                  <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/46">
+                    What Linea is doing
+                  </div>
+                  {stepCopy.map((step) => {
+                    const Icon = step.icon;
+                    return (
+                      <div
+                        key={step.label}
+                        className="rounded-[20px] border border-black/8 bg-white/82 p-4"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] bg-accent/12 text-accent">
+                            <Icon size={15} />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/46">
+                              {step.label}
+                            </div>
+                            <p className="mt-2 text-[13px] leading-6 text-ink/62">
+                              {step.detail}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="linea-page linea-bg-document linea-frame">
+    <div className="min-h-screen overflow-hidden bg-[#f7f0e6] text-ink">
       <RedirectToSignIn
         forceRedirectUrl={redirectUrl}
         fallbackRedirectUrl={redirectUrl}
       />
-      <div className="linea-loading-screen">
-        <Lock size={18} />
-        <h2>Redirecting to sign in</h2>
-        <p className="linea-auth-copy">
-          Shared voice on this deployment requires a signed-in Clerk account.
-        </p>
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute left-[10%] top-[14%] h-56 w-56 rounded-full bg-accent/12 blur-[92px]" />
+        <div className="absolute bottom-[8%] right-[10%] h-72 w-72 rounded-full bg-[#dac8b8]/36 blur-[110px]" />
+      </div>
+      <div className="relative flex min-h-screen items-center justify-center px-5 py-14 sm:px-8">
+        <div className="relative w-full max-w-[1040px] overflow-hidden rounded-[34px] border border-black/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,242,235,0.96))] shadow-[0_40px_120px_-64px_rgba(0,0,0,0.38)]">
+          <div className="absolute inset-x-0 top-0 h-36 bg-[radial-gradient(circle_at_top,rgba(212,115,74,0.2),transparent_72%)]" />
+          <div className="grid gap-8 px-6 py-7 sm:px-8 lg:grid-cols-[minmax(0,1.1fr)_320px] lg:px-10 lg:py-10">
+            <div className="space-y-6">
+              <div className="inline-flex items-center gap-2 rounded-full border border-accent/12 bg-accent/8 px-3 py-1.5">
+                <Lock size={12} className="text-accent" />
+                <span className="text-[10px] font-mono font-semibold uppercase tracking-[0.18em] text-accent">
+                  Secure sign-in
+                </span>
+              </div>
+              <div className="space-y-4">
+                <h1 className="max-w-[14ch] font-serif text-[2.6rem] leading-[0.94] tracking-[-0.05em] text-ink sm:text-[3.55rem]">
+                  {title}
+                </h1>
+                <p className="max-w-[36rem] text-[1rem] leading-[1.85] text-ink/64">
+                  {body}
+                </p>
+              </div>
+              <div className="rounded-[24px] border border-black/8 bg-white/72 p-5 shadow-[0_24px_60px_-48px_rgba(0,0,0,0.34)]">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-[16px] bg-accent/12 text-accent">
+                    <LoaderCircle size={18} className="animate-spin" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/48">
+                      Redirect in progress
+                    </div>
+                    <div className="mt-1 text-[1rem] font-medium text-ink">
+                      Clerk should take over in just a moment.
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-black/6">
+                  <div className="h-full w-2/3 rounded-full bg-accent animate-pulse" />
+                </div>
+              </div>
+            </div>
+            <div className="rounded-[28px] border border-black/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.86),rgba(247,240,233,0.92))] p-5 shadow-[0_30px_80px_-62px_rgba(0,0,0,0.4)]">
+              <div className="space-y-3">
+                <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/46">
+                  What happens next
+                </div>
+                {stepCopy.map((step) => {
+                  const Icon = step.icon;
+                  return (
+                    <div
+                      key={step.label}
+                      className="rounded-[20px] border border-black/8 bg-white/82 p-4"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] bg-accent/12 text-accent">
+                          <Icon size={15} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/46">
+                            {step.label}
+                          </div>
+                          <p className="mt-2 text-[13px] leading-6 text-ink/62">
+                            {step.detail}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -172,14 +369,51 @@ function LandingWelcomeOverlay({
   snapshot,
   onDismiss,
   onOpenPdf,
-  onOpenDemo,
+  onDropPdf,
+  onOpenSample,
+  loading,
+  loadingSample,
 }: {
   snapshot: LineaManagedAccessSnapshot;
   onDismiss: () => void;
   onOpenPdf: () => void;
-  onOpenDemo: () => void;
+  onDropPdf: (file: File) => void;
+  onOpenSample: (sampleFile: (typeof FEATURED_DEMO_OPTIONS)[number]["file"]) => void;
+  loading: boolean;
+  loadingSample: string | null;
 }) {
   const isBlocked = snapshot.access.status === "blocked";
+  const [isDropTarget, setIsDropTarget] = useState(false);
+  const isBusy = loading || Boolean(loadingSample);
+
+  const handleDropZoneDragOver = useCallback((event: React.DragEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!isBusy) {
+      setIsDropTarget(true);
+    }
+  }, [isBusy]);
+
+  const handleDropZoneDragLeave = useCallback((event: React.DragEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDropTarget(false);
+  }, []);
+
+  const handleDropZoneDrop = useCallback((event: React.DragEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDropTarget(false);
+
+    if (isBusy) {
+      return;
+    }
+
+    const file = event.dataTransfer.files[0];
+    if (file?.type === "application/pdf") {
+      onDropPdf(file);
+    }
+  }, [isBusy, onDropPdf]);
 
   return (
     <motion.div
@@ -268,30 +502,127 @@ function LandingWelcomeOverlay({
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-3 sm:flex-row">
-                  <button
-                    type="button"
-                    onClick={onOpenPdf}
-                    className="group flex items-center justify-center gap-2 rounded-full bg-accent px-5 py-3 text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-white shadow-xl shadow-accent/20 transition-all hover:brightness-110 sm:px-6"
-                  >
-                    <Upload size={14} className="transition-transform group-hover:-translate-y-0.5" />
-                    Open a PDF
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onOpenDemo}
-                    className="flex items-center justify-center gap-2 rounded-full border border-ink/18 bg-white/72 px-5 py-3 text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-ink transition-colors hover:bg-white sm:px-6"
-                  >
-                    <ArrowRight size={14} />
-                    View demo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onDismiss}
-                    className="flex items-center justify-center gap-2 rounded-full px-5 py-3 text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-ink/56 transition-colors hover:text-ink sm:px-6"
-                  >
-                    Maybe later
-                  </button>
+                <div className="space-y-4">
+                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(240px,0.92fr)]">
+                    <button
+                      type="button"
+                      onClick={onOpenPdf}
+                      onDragOver={handleDropZoneDragOver}
+                      onDragLeave={handleDropZoneDragLeave}
+                      onDrop={handleDropZoneDrop}
+                      disabled={isBusy}
+                      className={`group relative overflow-hidden rounded-[28px] border border-dashed px-5 py-5 text-left transition-all ${
+                        isDropTarget
+                          ? "border-accent bg-accent/8 shadow-[0_28px_64px_-48px_rgba(207,115,70,0.42)]"
+                          : "border-black/12 bg-white/74 shadow-[0_22px_44px_-40px_rgba(0,0,0,0.28)] hover:-translate-y-0.5 hover:border-accent/28 hover:bg-white"
+                      } ${isBusy ? "cursor-wait opacity-70" : ""}`}
+                    >
+                      <div className="pointer-events-none absolute inset-y-0 right-0 w-1/2 bg-[radial-gradient(circle_at_right,rgba(212,115,74,0.12),transparent_70%)]" />
+                      <div className="relative flex h-full flex-col justify-between gap-5">
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-accent">
+                            <Upload size={14} />
+                            Open your own PDF
+                          </div>
+                          <div className="space-y-2">
+                            <div className="text-[1.18rem] font-medium text-ink">
+                              {isDropTarget ? "Drop your file here." : "Click to browse or drag a PDF onto this card."}
+                            </div>
+                            <p className="max-w-[34rem] text-[13px] leading-6 text-ink/58">
+                              Bring in a real document right away. Extraction still starts in the browser, and shared voice stays server-managed once you are inside the reader.
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="inline-flex items-center gap-2 rounded-full border border-black/8 bg-white/88 px-3 py-2 text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/62">
+                            <Upload size={12} className="text-accent" />
+                            {loading ? "Opening…" : isDropTarget ? "Release to open" : "Browse files"}
+                          </div>
+                          <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/46">
+                            PDF only
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+
+                    <div className="rounded-[28px] border border-black/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.82),rgba(247,240,233,0.9))] p-5 shadow-[0_24px_60px_-50px_rgba(0,0,0,0.34)]">
+                      <div className="space-y-3">
+                        <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/46">
+                          Demo lane
+                        </div>
+                        <div className="text-[1.02rem] font-medium text-ink">
+                          Try a reader-ready sample first.
+                        </div>
+                        <p className="text-[13px] leading-6 text-ink/58">
+                          Instead of one generic demo button, you now have a few different document shapes to drop into immediately.
+                        </p>
+                        <div className="space-y-2">
+                          {FEATURED_DEMO_OPTIONS.map((option, index) => (
+                            <div
+                              key={option.file}
+                              className="flex items-center justify-between rounded-[16px] border border-black/8 bg-white/82 px-3 py-2.5"
+                            >
+                              <div>
+                                <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/42">
+                                  0{index + 1}
+                                </div>
+                                <div className="mt-1 text-[13px] font-medium text-ink">
+                                  {option.eyebrow}
+                                </div>
+                              </div>
+                              <ArrowRight size={14} className="text-ink/36" />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {FEATURED_DEMO_OPTIONS.map((option) => {
+                      const Icon = option.icon;
+                      const isOpeningOption = loadingSample === option.label;
+
+                      return (
+                        <button
+                          key={option.file}
+                          type="button"
+                          onClick={() => onOpenSample(option.file)}
+                          disabled={isBusy}
+                          className={`group rounded-[24px] border border-black/8 bg-white/76 p-4 text-left transition-all hover:-translate-y-1 hover:border-accent/28 hover:bg-white hover:shadow-[0_28px_56px_-48px_rgba(0,0,0,0.4)] ${isBusy ? "cursor-wait opacity-70" : ""}`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-[14px] bg-accent/12 text-accent">
+                              <Icon size={16} />
+                            </div>
+                            <ArrowRight size={15} className="text-ink/34 transition-transform group-hover:translate-x-0.5" />
+                          </div>
+                          <div className="mt-4 text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-accent">
+                            {option.eyebrow}
+                          </div>
+                          <div className="mt-2 text-[1rem] font-medium text-ink">
+                            {option.label}
+                          </div>
+                          <p className="mt-2 text-[13px] leading-6 text-ink/58">
+                            {isOpeningOption ? "Opening sample…" : option.description}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex flex-col gap-3 pt-1 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-[11px] font-mono uppercase tracking-[0.16em] text-ink/40">
+                      Dismiss this for now and come back whenever you want.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={onDismiss}
+                      className="flex items-center justify-center gap-2 rounded-full px-5 py-3 text-[10px] font-mono font-semibold uppercase tracking-[0.14em] text-ink/56 transition-colors hover:text-ink sm:px-0"
+                    >
+                      Maybe later
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1999,10 +2330,23 @@ function Landing({
               dismissWelcome();
               inputRef.current?.click();
             }}
-            onOpenDemo={() => {
+            onDropPdf={(file) => {
               dismissWelcome();
-              onOpenDemo();
+              onFile(file);
             }}
+            onOpenSample={(sampleFile) => {
+              dismissWelcome();
+              const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+              const sample = SAMPLE_DOCUMENTS.find((entry) => entry.file === sampleFile);
+              if (!sample) {
+                return;
+              }
+              void loadSamplePdf(`${base}/samples/${sample.file}`, sample.label, {
+                localPath: sample.localPath,
+              });
+            }}
+            loading={loading}
+            loadingSample={loadingSample}
           />
         ) : null}
       </AnimatePresence>
@@ -2418,7 +2762,7 @@ function ReaderPanel({
             </button>
             <span className="linea-panel-label">
               {document.source?.localPath
-                ? "Using local Fabric Runner OCR"
+                ? "Linea contacts local Fabric Runner only after you choose Run OCR"
                 : "OCR is currently available for local sample documents"}
             </span>
           </div>
@@ -2493,11 +2837,9 @@ export function App({ initialDocument }: AppProps) {
   } | null>(null);
   const [selectedParagraphId, setSelectedParagraphId] = useState<string | null>(null);
   const [expandPage, setExpandPage] = useState<number | null>(null);
-  const [fabricRunner, setFabricRunner] = useState<FabricRunnerRuntime | null>(null);
   const [ocrByPage, setOcrByPage] = useState<
     Record<number, { state: "idle" | "probing" | "running" | "completed" | "empty" | "failed"; message?: string }>
   >({});
-  const [pageImageByPage, setPageImageByPage] = useState<Record<number, string>>({});
 
   const { doc: pdfDoc } = usePdfDocument(pdfData);
   const autoLoadedRef = useRef(false);
@@ -2548,7 +2890,6 @@ export function App({ initialDocument }: AppProps) {
     setError("");
     setProgress(null);
     setOcrByPage({});
-    setPageImageByPage({});
     attemptedOcrRef.current = new Set();
     voice.stopSpeaking();
     voice.stopListening();
@@ -2578,7 +2919,6 @@ export function App({ initialDocument }: AppProps) {
     setError("");
     setProgress(null);
     setOcrByPage({});
-    setPageImageByPage({});
     attemptedOcrRef.current = new Set();
     voice.stopSpeaking();
     voice.stopListening();
@@ -2696,8 +3036,6 @@ export function App({ initialDocument }: AppProps) {
       return;
     }
 
-    setFabricRunner(runtime);
-
     try {
       const job = await submitFabricRunnerOcrPageJob(runtime, {
         pdfPath: document.source.localPath,
@@ -2759,41 +3097,6 @@ export function App({ initialDocument }: AppProps) {
       }));
     }
   }, [document]);
-
-  const ensurePageImageForPage = useCallback(async (pageNumber: number) => {
-    if (pageImageByPage[pageNumber]) return;
-    if (!document?.source?.localPath) return;
-
-    const runtime = fabricRunner ?? (await probeFabricRunner());
-    if (!runtime) return;
-    setFabricRunner(runtime);
-
-    try {
-      const job = await submitFabricRunnerPdfPageImageJob(runtime, {
-        pdfPath: document.source.localPath,
-        page: pageNumber,
-        dpi: 180,
-      });
-      const finalJob = await pollFabricRunnerJob(runtime, job.id);
-      const dataUrl = finalJob.result?.dataUrl;
-      if (finalJob.status === "completed" && typeof dataUrl === "string" && dataUrl.length > 0) {
-        setPageImageByPage((current) => ({ ...current, [pageNumber]: dataUrl }));
-      }
-    } catch {
-      /* keep browser renderer as fallback */
-    }
-  }, [document, fabricRunner, pageImageByPage]);
-
-  useEffect(() => {
-    if (!currentPage || currentPage.hasText) return;
-    if (!document?.source?.localPath) return;
-    void runOcrForPage(currentPage.pageNumber);
-  }, [currentPage, document?.source?.localPath, runOcrForPage]);
-
-  useEffect(() => {
-    if (!currentPage || !document?.source?.localPath) return;
-    void ensurePageImageForPage(currentPage.pageNumber);
-  }, [currentPage, document?.source?.localPath, ensurePageImageForPage]);
 
   const documentProgress = useMemo(() => {
     if (!document || document.totalWords === 0) return 0;
@@ -2936,7 +3239,7 @@ export function App({ initialDocument }: AppProps) {
                 document={document}
                 page={currentPage}
                 pdfDoc={pdfDoc}
-                pageImageDataUrl={pageImageByPage[currentPage.pageNumber] ?? null}
+                pageImageDataUrl={null}
                 selectedPage={selectedPage}
                 settings={settings}
                 activeParagraphId={voice.activeParagraphId}
