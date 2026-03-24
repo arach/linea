@@ -23,7 +23,7 @@ export const readerThemes = {
     chromeClass: "border-[#d8d0c1] bg-[#fffaf0]/82 text-[#433a30]",
     mutedClass: "text-[#6d6256]",
     titleClass: "text-[#19140f]",
-    activeParagraphClass: "bg-[#fff7dc] ring-1 ring-[#ebca76]/85",
+    activeParagraphClass: "bg-[#fff9ec]/72 ring-1 ring-[#ebca76]/26",
   },
   night: {
     label: "Night",
@@ -32,7 +32,7 @@ export const readerThemes = {
     chromeClass: "border-[#263143] bg-[#111b2a]/82 text-[#9faec5]",
     mutedClass: "text-[#9aa8bd]",
     titleClass: "text-[#fcf7f0]",
-    activeParagraphClass: "bg-[#192338] ring-1 ring-[#7aa2ff]/45",
+    activeParagraphClass: "bg-[#172133]/72 ring-1 ring-[#7aa2ff]/20",
   },
   mist: {
     label: "Mist",
@@ -41,7 +41,7 @@ export const readerThemes = {
     chromeClass: "border-[#ccd5e1] bg-[#f7fbff]/84 text-[#4c5c73]",
     mutedClass: "text-[#5b6a80]",
     titleClass: "text-[#122033]",
-    activeParagraphClass: "bg-[#ffffff] ring-1 ring-[#95b9ff]",
+    activeParagraphClass: "bg-[#ffffff]/78 ring-1 ring-[#95b9ff]/28",
   },
 } as const satisfies Record<
   ReaderTheme,

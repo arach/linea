@@ -1190,46 +1190,6 @@ function formatDurationMs(value: number) {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
-function tokenizeParagraph(text: string) {
-  return Array.from(text.matchAll(/\S+|\s+/g)).map((match) => ({
-    value: match[0],
-    start: match.index ?? 0,
-    end: (match.index ?? 0) + match[0].length,
-    isWhitespace: /^\s+$/.test(match[0]),
-  }));
-}
-
-function findActiveTokenIndex(tokens: ReturnType<typeof tokenizeParagraph>, relativeCharIndex: number) {
-  if (relativeCharIndex < 0) {
-    return -1;
-  }
-
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = tokens[index];
-    if (relativeCharIndex < token.end) {
-      if (!token.isWhitespace) {
-        return index;
-      }
-
-      for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
-        if (!tokens[cursor].isWhitespace) {
-          return cursor;
-        }
-      }
-
-      return -1;
-    }
-  }
-
-  for (let index = tokens.length - 1; index >= 0; index -= 1) {
-    if (!tokens[index].isWhitespace) {
-      return index;
-    }
-  }
-
-  return -1;
-}
-
 function renderDimSpans(paragraph: ReaderParagraph) {
   const spans = paragraph.dimSpans;
   if (!spans || spans.length === 0) return paragraph.text;
@@ -1254,44 +1214,8 @@ function renderDimSpans(paragraph: ReaderParagraph) {
   return parts;
 }
 
-function renderParagraphText(paragraph: ReaderParagraph, absoluteCharIndex: number | null, seekable = false) {
-  if (absoluteCharIndex === null && !seekable) {
-    return renderDimSpans(paragraph);
-  }
-
-  const relativeCharIndex = absoluteCharIndex !== null ? absoluteCharIndex - paragraph.start : -1;
-  const tokens = tokenizeParagraph(paragraph.text);
-
-  if (absoluteCharIndex !== null) {
-    if (relativeCharIndex < 0 || relativeCharIndex > paragraph.text.length) {
-      if (!seekable) return renderDimSpans(paragraph);
-    }
-  }
-
-  const activeTokenIndex = absoluteCharIndex !== null ? findActiveTokenIndex(tokens, relativeCharIndex) : -1;
-  const dimSpans = paragraph.dimSpans ?? [];
-
-  return tokens.map((token, index) => {
-    if (token.isWhitespace) {
-      return token.value;
-    }
-
-    const isDimmed = dimSpans.some((s) => token.start >= s.start && token.end <= s.end);
-    const isHighlighted = index === activeTokenIndex;
-
-    return (
-      <span
-        key={`${paragraph.id}:${token.start}`}
-        data-char-offset={seekable ? token.start : undefined}
-        className={
-          isHighlighted ? "linea-word-highlight" : isDimmed ? "linea-dim-span" : undefined
-        }
-        style={seekable && !isHighlighted ? { cursor: "pointer" } : undefined}
-      >
-        {token.value}
-      </span>
-    );
-  });
+function renderParagraphText(paragraph: ReaderParagraph) {
+  return renderDimSpans(paragraph);
 }
 
 /* ─── context panel ─── */
@@ -2580,7 +2504,6 @@ function ReaderPanel({
   settings,
   activeParagraphId,
   activePageNumber,
-  activeCharacterIndex,
   selectedParagraphId,
   isAudioActive,
   onSelectPage,
@@ -2599,7 +2522,6 @@ function ReaderPanel({
   settings: ReaderSettings;
   activeParagraphId: string | null;
   activePageNumber: number | null;
-  activeCharacterIndex: number;
   selectedParagraphId: string | null;
   isAudioActive: boolean;
   onSelectPage: (page: number) => void;
@@ -2726,13 +2648,7 @@ function ReaderPanel({
               className={`linea-paragraph${activeParagraphId === paragraph.id ? " active" : ""}${selectedParagraphId === paragraph.id ? " selected" : ""}${paragraph.skip ? " skipped" : ""}${activeParagraphId === paragraph.id ? ` ${readerTheme.activeParagraphClass}` : ""}`}
             >
               <span className="linea-paragraph-text">
-                {renderParagraphText(
-                  paragraph,
-                  activeParagraphId === paragraph.id && activePageNumber === page.pageNumber
-                    ? activeCharacterIndex
-                    : null,
-                  isAudioActive && activePageNumber === page.pageNumber,
-                )}
+                {renderParagraphText(paragraph)}
               </span>
             </div>
           ))}
@@ -3245,7 +3161,6 @@ export function App({ initialDocument }: AppProps) {
                 settings={settings}
                 activeParagraphId={voice.activeParagraphId}
                 activePageNumber={voice.activePageNumber}
-                activeCharacterIndex={voice.activeCharacterIndex}
                 selectedParagraphId={selectedParagraphId}
                 isAudioActive={voice.isSpeaking || voice.isPaused}
                 onSelectPage={setSelectedPage}

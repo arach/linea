@@ -1727,8 +1727,8 @@ textarea {
 
 .linea-paragraph.active {
   color: var(--text);
-  background: rgba(212, 115, 74, 0.05);
-  border-color: rgba(212, 115, 74, 0.12);
+  background: rgba(212, 115, 74, 0.026);
+  border-color: rgba(212, 115, 74, 0.08);
 }
 
 .linea-paragraph.selected {
@@ -1759,13 +1759,6 @@ textarea {
 .linea-paragraph-text {
   display: block;
   white-space: pre-wrap;
-}
-
-.linea-word-highlight {
-  border-radius: 0.35em;
-  background: rgba(255, 190, 140, 0.22);
-  color: var(--text);
-  box-shadow: 0 0 0 1px rgba(255, 190, 140, 0.14);
 }
 
 /* ── selection popover ── */
