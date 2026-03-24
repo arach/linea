@@ -1617,7 +1617,6 @@ function Header({
           {document && <span className="linea-header-sub">Reader</span>}
         </div>
         <nav className="linea-nav">
-          <ClerkAccessControls snapshot={accessSnapshot} compact />
           {document && (
             <>
               <div style={{ position: "relative" }}>
@@ -1881,6 +1880,7 @@ function Header({
           ) : (
             <a href={`${import.meta.env.BASE_URL}playground`}>Sample Document</a>
           )}
+          <ClerkAccessControls snapshot={accessSnapshot} compact />
         </nav>
       </div>
       <ApiKeySetupModal
@@ -2389,7 +2389,6 @@ function Landing({
         <div className="mx-auto flex max-w-[1240px] items-center justify-between">
           <div className="text-[11px] font-mono font-semibold uppercase tracking-[0.28em] text-ink pl-2">Linea</div>
           <div className="flex items-center gap-4 text-[10px] font-mono uppercase tracking-[0.16em] text-ink/48">
-            <ClerkAccessControls snapshot={accessSnapshot} compact />
             <a
               href={`${import.meta.env.BASE_URL}?demo=1`}
               onClick={(event) => {
@@ -2408,6 +2407,7 @@ function Landing({
             >
               {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
             </button>
+            <ClerkAccessControls snapshot={accessSnapshot} compact />
           </div>
         </div>
       </nav>

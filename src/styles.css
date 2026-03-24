@@ -1476,6 +1476,141 @@ textarea {
   gap: 8px;
 }
 
+.linea-account-shell {
+  position: relative;
+}
+
+.linea-account-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px 6px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-elevated);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.15s;
+}
+
+.linea-account-chip:hover,
+.linea-account-chip.open {
+  border-color: var(--tint-border-hover);
+  background: var(--bg);
+}
+
+.linea-account-avatar,
+.linea-account-menu-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.linea-account-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.linea-account-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.linea-account-role {
+  font-family: var(--font-mono);
+  font-size: 0.55rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.linea-account-caret {
+  color: var(--text-3);
+}
+
+.linea-account-menu {
+  min-width: 260px;
+  max-width: 300px;
+  gap: 12px;
+}
+
+.linea-account-menu-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.linea-account-menu-copy {
+  min-width: 0;
+}
+
+.linea-account-menu-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.linea-account-menu-email {
+  margin-top: 4px;
+  font-size: 0.82rem;
+  color: var(--text-2);
+  line-height: 1.5;
+  word-break: break-word;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.linea-account-status {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--tint-subtle);
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.linea-account-menu-note {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.65;
+  color: var(--text-2);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.linea-account-signout {
+  width: 100%;
+  justify-content: center;
+}
+
 .link-arrow {
   display: inline-flex;
   align-items: center;
@@ -2769,6 +2904,19 @@ textarea {
   .linea-header-popover-voice {
     min-width: min(92vw, 360px);
     max-width: min(92vw, 360px);
+  }
+
+  .linea-account-chip {
+    gap: 8px;
+    padding-right: 8px;
+  }
+
+  .linea-account-name {
+    max-width: 84px;
+  }
+
+  .linea-account-role {
+    display: none;
   }
 
   .voice-provider-tabs {
