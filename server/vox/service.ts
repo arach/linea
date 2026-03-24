@@ -1,5 +1,7 @@
 import fs from "node:fs/promises";
 
+import type { OraAudioFormat } from "@arach/ora";
+
 import type {
   LineaVoice,
   LineaVoiceCredentialStatus,
@@ -41,11 +43,11 @@ type VoxOraRuntime = {
     voice: string;
     rate?: number;
     instructions?: string;
-    format?: "mp3" | "wav" | "aac" | "opus";
+    format?: OraAudioFormat;
     metadata?: Record<string, string | number | boolean | null>;
   }): Promise<{
     audioData?: Uint8Array;
-    format: "mp3" | "wav" | "aac" | "opus";
+    format: OraAudioFormat;
   }>;
 };
 
