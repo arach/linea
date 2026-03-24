@@ -85,8 +85,18 @@ function currentUrl() {
   return typeof window !== "undefined" ? window.location.href : "/";
 }
 
+function useStableRedirectUrl() {
+  const [redirectUrl, setRedirectUrl] = useState("/");
+
+  useEffect(() => {
+    setRedirectUrl(currentUrl());
+  }, []);
+
+  return redirectUrl;
+}
+
 function ManagedAuthRedirect() {
-  const redirectUrl = currentUrl();
+  const redirectUrl = useStableRedirectUrl();
   const hasClerkProvider = Boolean(getClerkPublishableKey());
 
   if (!hasClerkProvider) {

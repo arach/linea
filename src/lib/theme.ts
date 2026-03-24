@@ -11,19 +11,23 @@ function getSystemTheme(): Theme {
     : "light";
 }
 
-function getInitialTheme(): Theme {
-  if (typeof window === "undefined") return "light";
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored === "light" || stored === "dark") return stored;
-  return getSystemTheme();
-}
-
 function applyTheme(theme: Theme) {
   document.documentElement.setAttribute("data-theme", theme);
 }
 
 export function useTheme() {
-  const [theme, setThemeState] = useState<Theme>(getInitialTheme);
+  const [theme, setThemeState] = useState<Theme>("light");
+
+  useEffect(() => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    const nextTheme =
+      stored === "light" || stored === "dark"
+        ? stored
+        : getSystemTheme();
+
+    setThemeState(nextTheme);
+    applyTheme(nextTheme);
+  }, []);
 
   const setTheme = useCallback((next: Theme) => {
     setThemeState(next);

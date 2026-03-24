@@ -1,4 +1,5 @@
 import { SignInButton, SignOutButton } from "@clerk/react";
+import { useEffect, useState } from "react";
 
 import { getClerkPublishableKey } from "@/lib/clerk-provider";
 import type { LineaManagedAccessSnapshot } from "@/lib/linea-access";
@@ -19,6 +20,16 @@ function currentUrl() {
   return typeof window !== "undefined" ? window.location.href : "/";
 }
 
+function useStableRedirectUrl() {
+  const [redirectUrl, setRedirectUrl] = useState("/");
+
+  useEffect(() => {
+    setRedirectUrl(currentUrl());
+  }, []);
+
+  return redirectUrl;
+}
+
 export function ClerkAccessControls({
   snapshot,
   compact = false,
@@ -26,6 +37,8 @@ export function ClerkAccessControls({
   snapshot: LineaManagedAccessSnapshot;
   compact?: boolean;
 }) {
+  const redirectUrl = useStableRedirectUrl();
+
   if (!getClerkPublishableKey()) {
     return null;
   }
@@ -50,7 +63,7 @@ export function ClerkAccessControls({
             {getSignedInLabel(snapshot)}
           </span>
         ) : null}
-        <SignOutButton redirectUrl={currentUrl()}>
+        <SignOutButton redirectUrl={redirectUrl}>
           <button type="button" className={buttonClassName}>
             Sign out
           </button>
@@ -62,8 +75,8 @@ export function ClerkAccessControls({
   return (
     <SignInButton
       mode="redirect"
-      forceRedirectUrl={currentUrl()}
-      fallbackRedirectUrl={currentUrl()}
+      forceRedirectUrl={redirectUrl}
+      fallbackRedirectUrl={redirectUrl}
     >
       <button type="button" className={buttonClassName}>
         Sign in
