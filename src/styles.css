@@ -1732,9 +1732,9 @@ textarea {
   border-color: rgba(212, 115, 74, 0.08);
 }
 
-.linea-paragraph.selected {
-  border-color: var(--border);
-  background: var(--tint-faint);
+.linea-paragraph.positioned {
+  border-color: rgba(212, 115, 74, 0.1);
+  background: rgba(212, 115, 74, 0.022);
 }
 
 .linea-paragraph.skipped {
@@ -1985,12 +1985,30 @@ textarea {
   box-shadow: inset 0 0 0 1px rgba(212, 115, 74, 0.14);
 }
 
+.pdf-thumbnail-card.playback-upcoming {
+  box-shadow: inset 2px 0 0 rgba(212, 115, 74, 0.12);
+}
+
+.pdf-thumbnail-card.playback-completed {
+  box-shadow: inset 2px 0 0 rgba(212, 115, 74, 0.22);
+}
+
+.pdf-thumbnail-card.playback-current {
+  box-shadow: inset 3px 0 0 rgba(212, 115, 74, 0.44);
+}
+
 .pdf-thumbnail-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 6px;
+}
+
+.pdf-thumbnail-toolbar-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .pdf-thumbnail-badge,
@@ -2004,6 +2022,31 @@ textarea {
 
 .pdf-thumbnail-badge {
   color: var(--text-2);
+}
+
+.pdf-thumbnail-read-marker {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: 0 0 0 1px transparent;
+}
+
+.pdf-thumbnail-read-marker.upcoming {
+  background: rgba(212, 115, 74, 0.12);
+  box-shadow: 0 0 0 1px rgba(212, 115, 74, 0.08);
+}
+
+.pdf-thumbnail-read-marker.completed {
+  background: rgba(212, 115, 74, 0.32);
+  box-shadow: 0 0 0 1px rgba(212, 115, 74, 0.12);
+}
+
+.pdf-thumbnail-read-marker.current {
+  background: rgba(212, 115, 74, 0.72);
+  box-shadow:
+    0 0 0 1px rgba(212, 115, 74, 0.18),
+    0 0 10px rgba(212, 115, 74, 0.18);
 }
 
 .pdf-thumbnail-action {
@@ -2193,7 +2236,12 @@ textarea {
   background: var(--tint-subtle);
 }
 
-.context-outline-item.selected {
+.context-outline-item.positioned {
+  background: rgba(212, 115, 74, 0.024);
+  border-color: rgba(212, 115, 74, 0.08);
+}
+
+.context-outline-item.text-selected {
   background: var(--tint-soft);
   border-color: var(--tint-border-hover);
 }
@@ -2201,6 +2249,28 @@ textarea {
 .context-outline-item.active {
   background: rgba(212, 115, 74, 0.07);
   border-color: rgba(212, 115, 74, 0.16);
+}
+
+.context-outline-marker {
+  width: 3px;
+  height: 16px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  align-self: center;
+  background: transparent;
+}
+
+.context-outline-marker.upcoming {
+  background: rgba(212, 115, 74, 0.12);
+}
+
+.context-outline-marker.completed {
+  background: rgba(212, 115, 74, 0.28);
+}
+
+.context-outline-marker.current {
+  background: rgba(212, 115, 74, 0.72);
+  box-shadow: 0 0 10px rgba(212, 115, 74, 0.14);
 }
 
 .context-outline-num {
@@ -2222,7 +2292,8 @@ textarea {
 }
 
 .context-outline-item.active .context-outline-text,
-.context-outline-item.selected .context-outline-text {
+.context-outline-item.positioned .context-outline-text,
+.context-outline-item.text-selected .context-outline-text {
   color: var(--text);
 }
 

@@ -237,13 +237,6 @@ export function useVoiceConsole({
       return null;
     }
 
-    if (speechSession?.kind === "selection" && speechSession.paragraphId) {
-      return (
-        pageForSession.paragraphs.find((paragraph) => paragraph.id === speechSession.paragraphId) ??
-        null
-      );
-    }
-
     return (
       pageForSession.paragraphs.find(
         (paragraph) =>
@@ -917,41 +910,87 @@ export function useVoiceConsole({
     });
   };
 
-  const speakSelection = (selectionText: string, page: ReaderPage | null, paragraphId: string | null) => {
-    const text = selectionText.trim();
+  const speakSelection = (
+    selection: {
+      text: string;
+      paragraphId: string | null;
+      paragraphIds: string[];
+      startCharIndex: number | null;
+      endCharIndex: number | null;
+    },
+    page: ReaderPage | null,
+  ) => {
+    if (!page) {
+      return;
+    }
 
-    if (!text || !page) {
+    const rangeStart =
+      selection.startCharIndex != null
+        ? Math.max(0, Math.min(page.text.length, selection.startCharIndex))
+        : null;
+    const rangeEnd =
+      selection.endCharIndex != null
+        ? Math.max(0, Math.min(page.text.length, selection.endCharIndex))
+        : null;
+    const hasConcreteRange =
+      rangeStart != null &&
+      rangeEnd != null &&
+      rangeEnd > rangeStart;
+
+    const text = hasConcreteRange
+      ? page.text.slice(rangeStart, rangeEnd).trim()
+      : selection.text.trim();
+
+    if (!text) {
       return;
     }
 
     debugVoice("speak-selection-click", {
       pageNumber: page.pageNumber,
-      paragraphId,
+      paragraphId: selection.paragraphId,
       textLength: text.length,
+      paragraphCount: selection.paragraphIds.length,
     });
 
-    const paragraph = page.paragraphs.find((entry) => entry.id === paragraphId) ?? null;
-    const offsetInParagraph = paragraph ? paragraph.text.indexOf(text) : -1;
-    const baseOffset =
-      paragraph && offsetInParagraph >= 0 ? paragraph.start + offsetInParagraph : 0;
+    const selectedParagraphs = hasConcreteRange
+      ? page.paragraphs.filter(
+          (paragraph) => paragraph.end > rangeStart! && paragraph.start < rangeEnd! && !paragraph.skip,
+        )
+      : page.paragraphs.filter((entry) => entry.id === selection.paragraphId);
+    const paragraph = selectedParagraphs[0] ?? null;
+    const baseOffset = hasConcreteRange
+      ? rangeStart!
+      : paragraph
+        ? paragraph.start + Math.max(0, paragraph.text.indexOf(text))
+        : 0;
+    const segments = hasConcreteRange
+      ? selectedParagraphs
+          .map((paragraph) => ({
+            id: paragraph.id,
+            start: Math.max(paragraph.start, rangeStart!) - rangeStart!,
+            end: Math.min(paragraph.end, rangeEnd!) - rangeStart!,
+            label: paragraph.id,
+          }))
+          .filter((segment) => segment.end > segment.start)
+      : paragraph
+        ? [
+            {
+              id: paragraph.id,
+              start: 0,
+              end: text.length,
+              label: paragraph.id,
+            },
+          ]
+        : [];
 
     void speakSession({
       pageNumber: page.pageNumber,
       text,
       label: "Reading selection",
-      paragraphId,
+      paragraphId: paragraph?.id ?? selection.paragraphId,
       charOffsetBase: baseOffset,
       kind: "selection",
-      segments: paragraphId
-        ? [
-            {
-              id: paragraphId,
-              start: 0,
-              end: text.length,
-              label: paragraphId,
-            },
-          ]
-        : [],
+      segments,
     });
   };
 

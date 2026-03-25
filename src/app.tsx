@@ -1041,12 +1041,16 @@ function PdfSidebar({
   doc,
   document,
   selectedPage,
+  playbackRangePageNumber,
+  playbackParagraphStateById,
   onSelectPage,
   onExpand,
 }: {
   doc: PdfDocumentProxy | null;
   document: ReaderDocument;
   selectedPage: number;
+  playbackRangePageNumber: number | null;
+  playbackParagraphStateById: Record<string, "completed" | "current" | "upcoming">;
   onSelectPage: (page: number) => void;
   onExpand: (page: number) => void;
 }) {
@@ -1124,6 +1128,16 @@ function PdfSidebar({
       <div className="pdf-thumbnail-list" ref={containerRef}>
         {document.pages.map((page) => {
           const isActive = page.pageNumber === selectedPage;
+          const pagePlaybackState =
+            page.pageNumber === playbackRangePageNumber
+              ? Object.values(playbackParagraphStateById).includes("current")
+                ? "current"
+                : Object.values(playbackParagraphStateById).includes("completed")
+                  ? "completed"
+                  : Object.values(playbackParagraphStateById).includes("upcoming")
+                    ? "upcoming"
+                    : null
+              : null;
 
           return (
             <button
@@ -1136,7 +1150,7 @@ function PdfSidebar({
                 }
               }}
               type="button"
-              className={`pdf-thumbnail-card${isActive ? " active" : ""}`}
+              className={`pdf-thumbnail-card${isActive ? " active" : ""}${pagePlaybackState ? ` playback-${pagePlaybackState}` : ""}`}
               onClick={() => {
                 if (isActive) {
                   onExpand(page.pageNumber);
@@ -1146,7 +1160,15 @@ function PdfSidebar({
               }}
             >
               <div className="pdf-thumbnail-toolbar">
-                <span className="pdf-thumbnail-badge">{page.pageNumber}</span>
+                <span className="pdf-thumbnail-toolbar-primary">
+                  <span className="pdf-thumbnail-badge">{page.pageNumber}</span>
+                  {pagePlaybackState ? (
+                    <span
+                      aria-hidden="true"
+                      className={`pdf-thumbnail-read-marker ${pagePlaybackState}`}
+                    />
+                  ) : null}
+                </span>
                 <span className="pdf-thumbnail-badge">
                   {page.wordCount ? `${formatCount(page.wordCount)}w` : "No text"}
                 </span>
@@ -1218,6 +1240,14 @@ function renderParagraphText(paragraph: ReaderParagraph) {
   return renderDimSpans(paragraph);
 }
 
+type ReaderTextSelection = {
+  text: string;
+  paragraphId: string | null;
+  paragraphIds: string[];
+  startCharIndex: number | null;
+  endCharIndex: number | null;
+};
+
 /* ─── context panel ─── */
 
 function snippetText(text: string, maxLen = 80) {
@@ -1230,6 +1260,7 @@ function ContextPanel({
   document,
   page,
   voice,
+  selectedPassage,
   selectedParagraph,
   selectedParagraphId,
   selectedPage,
@@ -1238,6 +1269,7 @@ function ContextPanel({
   document: ReaderDocument;
   page: ReaderPage;
   voice: ReturnType<typeof useVoiceConsole>;
+  selectedPassage: ReaderTextSelection | null;
   selectedParagraph: ReaderParagraph | null;
   selectedParagraphId: string | null;
   selectedPage: number;
@@ -1256,6 +1288,11 @@ function ContextPanel({
     () => page.paragraphs.filter((p) => p.text.trim() !== page.title.trim()),
     [page.paragraphs, page.title],
   );
+  const selectedTextParagraphIds = useMemo(
+    () => new Set(selectedPassage?.paragraphIds ?? []),
+    [selectedPassage],
+  );
+  const isPlaybackRangeVisible = voice.playbackRangePageNumber === page.pageNumber;
 
   return (
     <aside className="linea-context-panel">
@@ -1302,10 +1339,26 @@ function ContextPanel({
         </div>
       )}
 
-      {/* Selected content (user-clicked paragraph) */}
-      {selectedParagraph && !isPlaying && (
+      {/* Selected content (real text highlight) */}
+      {selectedPassage && !isPlaying && (
         <div className="linea-panel-section">
-          <span className="linea-panel-label">Selected</span>
+          <span className="linea-panel-label">Selected text</span>
+          <div className="linea-context-snippet">
+            {snippetText(selectedPassage.text)}
+          </div>
+          <span className="linea-panel-label">
+            {selectedPassage.text.split(/\s+/).filter(Boolean).length} words
+            {selectedPassage.paragraphIds.length > 1
+              ? ` · ${selectedPassage.paragraphIds.length} paragraphs`
+              : ""}
+          </span>
+        </div>
+      )}
+
+      {/* Current position (user-clicked paragraph) */}
+      {selectedParagraph && !selectedPassage && !isPlaying && (
+        <div className="linea-panel-section">
+          <span className="linea-panel-label">Current position</span>
           <div className="linea-context-snippet">
             {snippetText(selectedParagraph.text)}
           </div>
@@ -1322,18 +1375,26 @@ function ContextPanel({
           {visibleParagraphs.map((p, i) => {
             const wc = p.text.split(/\s+/).filter(Boolean).length;
             const isActive = voice.activeParagraphId === p.id;
-            const isSelected = selectedParagraphId === p.id;
+            const isPositioned = selectedParagraphId === p.id;
+            const isTextSelected = selectedTextParagraphIds.has(p.id);
+            const playbackState = isPlaybackRangeVisible
+              ? voice.playbackParagraphStateById[p.id] ?? null
+              : null;
             return (
               <button
                 key={p.id}
                 type="button"
-                className={`context-outline-item${isActive ? " active" : ""}${isSelected ? " selected" : ""}${p.skip ? " dimmed" : ""}`}
+                className={`context-outline-item${isActive ? " active" : ""}${isPositioned ? " positioned" : ""}${isTextSelected ? " text-selected" : ""}${playbackState ? ` playback-${playbackState}` : ""}${p.skip ? " dimmed" : ""}`}
                 onClick={() => {
                   onSelectParagraph(selectedParagraphId === p.id ? null : p.id);
                   const el = window.document.querySelector(`[data-paragraph-id="${p.id}"]`);
                   el?.scrollIntoView({ behavior: "smooth", block: "center" });
                 }}
               >
+                <span
+                  aria-hidden="true"
+                  className={`context-outline-marker${playbackState ? ` ${playbackState}` : ""}`}
+                />
                 <span className="context-outline-num">{i + 1}</span>
                 <span className="context-outline-text">{p.skip ? `${p.skip.reason} · ${snippetText(p.text, 36)}` : snippetText(p.text, 50)}</span>
                 <span className="context-outline-wc">{wc}</span>
@@ -2534,7 +2595,7 @@ function ReaderPanel({
   isAudioActive: boolean;
   onSelectPage: (page: number) => void;
   onSelectParagraph: (paragraphId: string | null) => void;
-  onSelectText: (selection: { text: string; paragraphId: string | null } | null) => void;
+  onSelectText: (selection: ReaderTextSelection | null) => void;
   onSeekToChar: (charIndex: number) => void;
   onReadSelection: () => void;
   onRunOcr: () => void;
@@ -2570,12 +2631,90 @@ function ReaderPanel({
     }
     const text = sel.toString().trim();
     if (!text) { onSelectText(null); setSelectionRect(null); return; }
-    const anchor = sel.anchorNode;
-    const el = anchor instanceof Element ? anchor : anchor?.parentElement ?? null;
-    if (!el || !articleRef.current.contains(el)) { onSelectText(null); setSelectionRect(null); return; }
-    const pEl = el.closest<HTMLElement>("[data-paragraph-id]");
-    onSelectText({ text, paragraphId: pEl?.dataset.paragraphId ?? null });
-    setSelectionRect(sel.getRangeAt(0).getBoundingClientRect());
+
+    const range = sel.rangeCount > 0 ? sel.getRangeAt(0) : null;
+    const getParagraphElement = (node: Node | null) => {
+      const element = node instanceof Element ? node : node?.parentElement ?? null;
+      return element?.closest<HTMLElement>("[data-paragraph-id]") ?? null;
+    };
+    const startParagraphEl = getParagraphElement(range?.startContainer ?? null);
+    const endParagraphEl = getParagraphElement(range?.endContainer ?? null);
+    const paragraphElement = getParagraphElement(sel.anchorNode);
+
+    if (!paragraphElement || !articleRef.current.contains(paragraphElement)) {
+      onSelectText(null);
+      setSelectionRect(null);
+      return;
+    }
+
+    const getTextOffsetWithinParagraph = (
+      paragraphEl: HTMLElement,
+      container: Node,
+      offset: number,
+    ) => {
+      const measurementRange = window.document.createRange();
+      const contentRoot =
+        paragraphEl.querySelector<HTMLElement>(".linea-paragraph-text") ?? paragraphEl;
+      measurementRange.selectNodeContents(contentRoot);
+      measurementRange.setEnd(container, offset);
+      return measurementRange.toString().length;
+    };
+
+    const startParagraphId = startParagraphEl?.dataset.paragraphId ?? null;
+    const endParagraphId = endParagraphEl?.dataset.paragraphId ?? null;
+    const startParagraph = page.paragraphs.find((entry) => entry.id === startParagraphId) ?? null;
+    const endParagraph = page.paragraphs.find((entry) => entry.id === endParagraphId) ?? null;
+
+    let paragraphIds: string[] = paragraphElement.dataset.paragraphId
+      ? [paragraphElement.dataset.paragraphId]
+      : [];
+    let startCharIndex: number | null = null;
+    let endCharIndex: number | null = null;
+
+    if (
+      range &&
+      startParagraphEl &&
+      endParagraphEl &&
+      startParagraph &&
+      endParagraph &&
+      articleRef.current.contains(startParagraphEl) &&
+      articleRef.current.contains(endParagraphEl)
+    ) {
+      const rawStartOffset = getTextOffsetWithinParagraph(
+        startParagraphEl,
+        range.startContainer,
+        range.startOffset,
+      );
+      const rawEndOffset = getTextOffsetWithinParagraph(
+        endParagraphEl,
+        range.endContainer,
+        range.endOffset,
+      );
+      const boundedStartOffset = Math.max(0, Math.min(startParagraph.text.length, rawStartOffset));
+      const boundedEndOffset = Math.max(0, Math.min(endParagraph.text.length, rawEndOffset));
+
+      startCharIndex = startParagraph.start + boundedStartOffset;
+      endCharIndex = endParagraph.start + boundedEndOffset;
+
+      if (endCharIndex < startCharIndex) {
+        [startCharIndex, endCharIndex] = [endCharIndex, startCharIndex];
+      }
+
+      if (startCharIndex !== null && endCharIndex !== null && endCharIndex > startCharIndex) {
+        paragraphIds = page.paragraphs
+          .filter((paragraph) => paragraph.end > startCharIndex && paragraph.start < endCharIndex)
+          .map((paragraph) => paragraph.id);
+      }
+    }
+
+    onSelectText({
+      text,
+      paragraphId: paragraphIds[0] ?? paragraphElement.dataset.paragraphId ?? null,
+      paragraphIds,
+      startCharIndex,
+      endCharIndex,
+    });
+    setSelectionRect(range?.getBoundingClientRect() ?? null);
   };
 
   // Clear popover when browser selection is dismissed
@@ -2663,7 +2802,7 @@ function ReaderPanel({
                       onSelectParagraph(selectedParagraphId === paragraph.id ? null : paragraph.id);
                     }
                   }}
-                  className={`linea-paragraph${isActivePlaybackParagraph ? " active" : ""}${selectedParagraphId === paragraph.id ? " selected" : ""}${paragraph.skip ? " skipped" : ""}${playbackState ? ` playback-${playbackState}` : ""}${playbackRangeStartParagraphId === paragraph.id ? " playback-range-start" : ""}${playbackRangeEndParagraphId === paragraph.id ? " playback-range-end" : ""}${isActivePlaybackParagraph ? ` ${readerTheme.activeParagraphClass}` : ""}`}
+                  className={`linea-paragraph${isActivePlaybackParagraph ? " active" : ""}${selectedParagraphId === paragraph.id ? " positioned" : ""}${paragraph.skip ? " skipped" : ""}${playbackState ? ` playback-${playbackState}` : ""}${playbackRangeStartParagraphId === paragraph.id ? " playback-range-start" : ""}${playbackRangeEndParagraphId === paragraph.id ? " playback-range-end" : ""}${isActivePlaybackParagraph ? ` ${readerTheme.activeParagraphClass}` : ""}`}
                 >
                   {playbackState ? (
                     <span
@@ -2772,10 +2911,7 @@ export function App({ initialDocument }: AppProps) {
   const [progress, setProgress] = useState<ExtractionProgress | null>(null);
   const [error, setError] = useState("");
   const [settings, setSettings] = useState<ReaderSettings>(defaultReaderSettings);
-  const [selectedPassage, setSelectedPassage] = useState<{
-    text: string;
-    paragraphId: string | null;
-  } | null>(null);
+  const [selectedPassage, setSelectedPassage] = useState<ReaderTextSelection | null>(null);
   const [selectedParagraphId, setSelectedParagraphId] = useState<string | null>(null);
   const [expandPage, setExpandPage] = useState<number | null>(null);
   const [ocrByPage, setOcrByPage] = useState<
@@ -2935,7 +3071,7 @@ export function App({ initialDocument }: AppProps) {
 
   const handleReadSelection = useCallback(() => {
     if (!selectedPassage) return;
-    voice.speakSelection(selectedPassage.text, currentPage, selectedPassage.paragraphId);
+    voice.speakSelection(selectedPassage, currentPage);
   }, [voice, selectedPassage, currentPage]);
 
   const handlePlayPage = useCallback(() => {
@@ -3136,6 +3272,8 @@ export function App({ initialDocument }: AppProps) {
         doc={pdfDoc}
         document={document}
         selectedPage={selectedPage}
+        playbackRangePageNumber={voice.playbackRangePageNumber}
+        playbackParagraphStateById={voice.playbackParagraphStateById}
         onSelectPage={setSelectedPage}
         onExpand={setExpandPage}
       />
@@ -3209,6 +3347,7 @@ export function App({ initialDocument }: AppProps) {
           document={document}
           page={currentPage}
           voice={voice}
+          selectedPassage={selectedPassage}
           selectedParagraph={selectedParagraph}
           selectedParagraphId={selectedParagraphId}
           selectedPage={selectedPage}
