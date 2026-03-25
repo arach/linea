@@ -6,7 +6,21 @@ import path from "node:path";
 import type { LineaVoiceProviderId, LineaVoiceSynthesisRequest } from "../../src/lib/linea-voice";
 import type { VoxAlignment, VoxCacheEntry } from "./types";
 
-const CACHE_ROOT = path.join(os.homedir(), ".linea", "vox-cache");
+function resolveCacheRoot() {
+  const override = process.env.LINEA_VOX_CACHE_DIR?.trim();
+  if (override) {
+    return override;
+  }
+
+  // Serverless runtimes cannot rely on a writable home directory.
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    return path.join(os.tmpdir(), "linea", "vox-cache");
+  }
+
+  return path.join(os.homedir(), ".linea", "vox-cache");
+}
+
+const CACHE_ROOT = resolveCacheRoot();
 
 function normalizeText(value: string) {
   return value.replace(/\s+/g, " ").trim();

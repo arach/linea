@@ -113,6 +113,15 @@ function isBrowser() {
   return typeof window !== "undefined";
 }
 
+function shouldAutoDiscoverVoxCompanion() {
+  if (!isBrowser()) {
+    return false;
+  }
+
+  const hostname = window.location.hostname.toLowerCase();
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+}
+
 function getRecognitionConstructor() {
   if (!isBrowser()) {
     return null;
@@ -569,7 +578,9 @@ export function useVoiceConsole({
     });
 
     try {
-      const runtime = await discoverVoxCompanion();
+      const runtime = shouldAutoDiscoverVoxCompanion()
+        ? await discoverVoxCompanion()
+        : null;
       setLocalRuntime(runtime);
       setActivity((current) => ({
         ...current,
