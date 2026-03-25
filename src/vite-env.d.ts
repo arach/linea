@@ -13,6 +13,21 @@ declare global {
     __INITIAL_STATE__?: unknown;
     SpeechRecognition?: SpeechRecognitionConstructor;
     webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    lineaElectron?: {
+      isDesktop: true;
+      pickPdf: () => Promise<{
+        name: string;
+        path: string;
+        bytes: ArrayBuffer;
+      } | null>;
+      onOpenPdf: (
+        callback: (payload: {
+          name: string;
+          path: string;
+          bytes: ArrayBuffer;
+        }) => void,
+      ) => () => void;
+    };
   }
 
   interface SpeechRecognitionConstructor {

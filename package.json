@@ -10,8 +10,11 @@
     "build:ssr": "vite build --ssr src/entry-server.tsx --outDir dist/server",
     "build:server": "tsup server/index.ts --format esm --out-dir dist --target node22 --splitting false",
     "build:vercel-api": "tsup server/vercel-access.ts server/vercel-vox.ts --format esm --out-dir dist/vercel --target node22 --splitting false",
+    "build:electron": "tsup electron/main.ts electron/preload.ts --format esm --out-dir dist/electron --target node22 --splitting false --external electron",
     "build:static": "vite build --outDir dist/static",
-    "start": "NODE_ENV=production bun dist/index.js"
+    "start": "NODE_ENV=production bun dist/index.js",
+    "electron": "bun run build && bun run build:electron && electron dist/electron/main.js",
+    "electron:web": "bun run build:electron && LINEA_ELECTRON_START_URL=https://www.uselinea.com electron dist/electron/main.js"
   },
   "dependencies": {
     "@arach/ora": "0.0.2",
@@ -43,6 +46,7 @@
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
     "@vitejs/plugin-react": "^5.0.2",
+    "electron": "^37.5.1",
     "tailwindcss": "^4.1.13",
     "tsup": "^8.5.0",
     "typescript": "^5.9.2",

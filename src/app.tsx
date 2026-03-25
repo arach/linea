@@ -69,6 +69,12 @@ import {
 import { ClerkAccessControls } from "@/components/clerk-access-controls";
 import { ManagedAccessPanel } from "@/components/managed-access-panel";
 import { getClerkPublishableKey } from "@/lib/clerk-provider";
+import {
+  electronPayloadToFile,
+  electronPayloadToSource,
+  getLineaElectron,
+  type LineaElectronPdfPayload,
+} from "@/lib/electron";
 import type { LineaManagedAccessSnapshot } from "@/lib/linea-access";
 import { useLineaAccessSnapshot } from "@/lib/use-linea-access";
 import { formatCount, formatMinutes } from "@/lib/utils";
@@ -2228,6 +2234,7 @@ function LandingReaderPreview() {
 
 function Landing({
   onFile,
+  onOpenPdf,
   onOpenDemo,
   loading,
   loadingSample,
@@ -2238,6 +2245,7 @@ function Landing({
   accessSnapshot,
 }: {
   onFile: (file: File) => void;
+  onOpenPdf: () => void;
   onOpenDemo: () => void;
   loading: boolean;
   loadingSample: string | null;
@@ -2313,7 +2321,7 @@ function Landing({
             onDismiss={dismissWelcome}
             onOpenPdf={() => {
               dismissWelcome();
-              inputRef.current?.click();
+              onOpenPdf();
             }}
             onDropPdf={(file) => {
               dismissWelcome();
@@ -2422,7 +2430,7 @@ function Landing({
               <div className="flex flex-col gap-3.5 sm:flex-row">
                 <button
                   type="button"
-                  onClick={() => inputRef.current?.click()}
+                  onClick={onOpenPdf}
                   disabled={loading}
                   className="group flex items-center justify-center gap-2 rounded-full bg-accent px-5 py-2.5 text-[9px] font-mono font-semibold uppercase tracking-[0.11em] text-white shadow-xl shadow-accent/20 transition-all hover:brightness-110 disabled:opacity-50 sm:px-6 sm:py-3"
                 >
@@ -2962,7 +2970,7 @@ export function App({ initialDocument }: AppProps) {
     window.localStorage.setItem("linea:reader-settings", JSON.stringify(settings));
   }, [settings]);
 
-  const handleFile = async (file: File) => {
+  const handleFile = useCallback(async (file: File, source?: ReaderDocument["source"]) => {
     setLoading(true);
     setError("");
     setProgress(null);
@@ -2973,7 +2981,7 @@ export function App({ initialDocument }: AppProps) {
     try {
       const fileData = new Uint8Array(await file.arrayBuffer());
       setPdfData(fileData);
-      const doc = await loadReaderDocument(file, setProgress);
+      const doc = await loadReaderDocument(file, setProgress, source);
       startTransition(() => {
         setDocument(doc);
         setSelectedPage(1);
@@ -2984,7 +2992,37 @@ export function App({ initialDocument }: AppProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [voice]);
+
+  const handleElectronPdf = useCallback(async (payload: LineaElectronPdfPayload) => {
+    await handleFile(electronPayloadToFile(payload), electronPayloadToSource(payload));
+  }, [handleFile]);
+
+  const handleOpenPdf = useCallback(async () => {
+    const lineaElectron = getLineaElectron();
+    if (!lineaElectron) {
+      fileInputRef.current?.click();
+      return;
+    }
+
+    const payload = await lineaElectron.pickPdf();
+    if (!payload) {
+      return;
+    }
+
+    await handleElectronPdf(payload);
+  }, [handleElectronPdf]);
+
+  useEffect(() => {
+    const lineaElectron = getLineaElectron();
+    if (!lineaElectron) {
+      return;
+    }
+
+    return lineaElectron.onOpenPdf((payload) => {
+      void handleElectronPdf(payload);
+    });
+  }, [handleElectronPdf]);
 
   const loadSamplePdf = async (
     url: string,
@@ -3225,6 +3263,9 @@ export function App({ initialDocument }: AppProps) {
     return (
       <Landing
         onFile={handleFile}
+        onOpenPdf={() => {
+          void handleOpenPdf();
+        }}
         onOpenDemo={openDemo}
         loading={loading}
         loadingSample={loadingSample}
@@ -3243,7 +3284,9 @@ export function App({ initialDocument }: AppProps) {
     <div className="linea-page linea-bg-document linea-frame">
       <Header
         document={document}
-        onUploadClick={() => fileInputRef.current?.click()}
+        onUploadClick={() => {
+          void handleOpenPdf();
+        }}
         onLoadSample={(url, name, options) => void loadSamplePdf(url, name, options)}
         loadingSample={loadingSample}
         theme={theme}
