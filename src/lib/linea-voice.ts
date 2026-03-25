@@ -42,6 +42,8 @@ export type LineaVoiceSynthesisResponse = {
   format: OraAudioFormat;
   cached: boolean;
   audioUrl: string;
+  audioDataBase64?: string;
+  audioMimeType?: string;
   source?: LineaVoiceSynthesisRequest["source"];
 };
 
@@ -152,6 +154,7 @@ async function parseResponse<T>(
         cached: payload.cached,
         format: payload.format,
         audioUrl: payload.audioUrl,
+        inlineAudio: Boolean(payload.audioDataBase64),
       };
     } else if (context.action === "align") {
       const payload = data as { alignment: LineaVoiceAlignment | null };

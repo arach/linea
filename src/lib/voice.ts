@@ -122,6 +122,17 @@ function shouldAutoDiscoverVoxCompanion() {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
 }
 
+function createInlineAudioUrl(base64: string, mimeType: string) {
+  const binary = window.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+}
+
 function getRecognitionConstructor() {
   if (!isBrowser()) {
     return null;
@@ -205,6 +216,7 @@ export function useVoiceConsole({
   const trackerRef = useRef<OraPlaybackTracker | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const requestAbortRef = useRef<AbortController | null>(null);
+  const inlineAudioUrlRef = useRef<string | null>(null);
 
   const recognitionSupported = Boolean(getRecognitionConstructor());
   const selectedPageData = useMemo(
@@ -430,8 +442,21 @@ export function useVoiceConsole({
       recognitionRef.current?.stop();
       audioRef.current?.pause();
       audioRef.current = null;
+      if (inlineAudioUrlRef.current) {
+        URL.revokeObjectURL(inlineAudioUrlRef.current);
+        inlineAudioUrlRef.current = null;
+      }
     };
   }, []);
+
+  const revokeInlineAudioUrl = () => {
+    if (!inlineAudioUrlRef.current) {
+      return;
+    }
+
+    URL.revokeObjectURL(inlineAudioUrlRef.current);
+    inlineAudioUrlRef.current = null;
+  };
 
   const resetPlayback = () => {
     trackerRef.current = null;
@@ -543,6 +568,7 @@ export function useVoiceConsole({
     }
 
     stopSpeaking();
+    revokeInlineAudioUrl();
     setSpeechSession(session);
     setSpokenCharacterIndex(0);
     setVoiceError("");
@@ -613,6 +639,14 @@ export function useVoiceConsole({
         cached: response.cached,
         audioUrl: response.audioUrl,
       });
+      const playableAudioUrl = response.audioDataBase64
+        ? createInlineAudioUrl(response.audioDataBase64, response.audioMimeType ?? "audio/mpeg")
+        : response.audioUrl;
+
+      if (response.audioDataBase64) {
+        inlineAudioUrlRef.current = playableAudioUrl;
+      }
+
       setActivity({
         phase: "requesting",
         requestStage: "downloading",
@@ -625,13 +659,13 @@ export function useVoiceConsole({
         provider: selectedProvider,
         voice: response.voice,
         cacheKey: response.cacheKey,
-        audioUrl: response.audioUrl,
+        audioUrl: playableAudioUrl,
         cached: response.cached,
         pageNumber: session.pageNumber,
         paragraphId: session.paragraphId,
       });
 
-      const audio = new Audio(response.audioUrl);
+      const audio = new Audio(playableAudioUrl);
       audioRef.current = audio;
 
       audio.onloadedmetadata = () => {
@@ -681,7 +715,7 @@ export function useVoiceConsole({
           provider: selectedProvider,
           voice: response.voice,
           cacheKey: response.cacheKey,
-          audioUrl: response.audioUrl,
+          audioUrl: playableAudioUrl,
           cached: response.cached,
           pageNumber: session.pageNumber,
           paragraphId: session.paragraphId,
@@ -773,7 +807,7 @@ export function useVoiceConsole({
         debugVoice("audio-error", {
           provider: selectedProvider,
           voice: voiceId,
-          audioUrl: response.audioUrl,
+          audioUrl: playableAudioUrl,
         });
         setVoiceError("Audio playback failed.");
         setActivity({
@@ -786,7 +820,7 @@ export function useVoiceConsole({
           provider: selectedProvider,
           voice: voiceId,
           cacheKey: response.cacheKey,
-          audioUrl: response.audioUrl,
+          audioUrl: playableAudioUrl,
           cached: response.cached,
           pageNumber: session.pageNumber,
           paragraphId: session.paragraphId,

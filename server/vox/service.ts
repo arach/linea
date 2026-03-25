@@ -273,6 +273,8 @@ export class VoxService {
         format: response.format,
         cached: false,
         audioUrl: `/api/vox/audio/${cacheKey}`,
+        audioDataBase64: Buffer.from(response.audioData).toString("base64"),
+        audioMimeType: response.mimeType ?? "audio/mpeg",
         source: request.source,
       } satisfies LineaVoiceSynthesisResponse;
     })();
