@@ -1705,7 +1705,7 @@ textarea {
 .linea-copy p,
 .linea-paragraph {
   margin: 0 0 6px;
-  padding: 14px 18px;
+  padding: 14px 18px 14px 24px;
   border-radius: 10px;
   background: transparent;
   color: var(--text-2);
@@ -1719,6 +1719,7 @@ textarea {
   font-family: inherit;
   user-select: text;
   -webkit-user-select: text;
+  position: relative;
 }
 
 .linea-paragraph:hover {
@@ -1759,6 +1760,66 @@ textarea {
 .linea-paragraph-text {
   display: block;
   white-space: pre-wrap;
+}
+
+.linea-playback-rail {
+  position: absolute;
+  left: 9px;
+  top: 11px;
+  bottom: 11px;
+  width: 4px;
+  border-radius: 999px;
+  pointer-events: none;
+  transition:
+    background 0.24s ease,
+    box-shadow 0.24s ease,
+    opacity 0.24s ease,
+    transform 0.24s ease;
+}
+
+.linea-playback-rail.upcoming {
+  background: rgba(212, 115, 74, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(212, 115, 74, 0.09);
+  opacity: 0.85;
+}
+
+.linea-playback-rail.completed {
+  background: linear-gradient(180deg, rgba(212, 115, 74, 0.28) 0%, rgba(255, 190, 140, 0.22) 100%);
+  box-shadow: 0 0 0 1px rgba(212, 115, 74, 0.08);
+  opacity: 0.95;
+}
+
+.linea-playback-rail.current {
+  background: linear-gradient(180deg, rgba(212, 115, 74, 0.92) 0%, rgba(255, 190, 140, 0.72) 100%);
+  box-shadow:
+    0 0 0 1px rgba(212, 115, 74, 0.22),
+    0 0 16px rgba(212, 115, 74, 0.16);
+  transform: scaleX(1.12);
+}
+
+.linea-playback-rail.range-start::before,
+.linea-playback-rail.range-end::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  width: 12px;
+  height: 2px;
+  border-radius: 999px;
+  transform: translateX(-50%);
+  background: rgba(212, 115, 74, 0.22);
+}
+
+.linea-playback-rail.range-start::before {
+  top: -4px;
+}
+
+.linea-playback-rail.range-end::after {
+  bottom: -4px;
+}
+
+.linea-playback-rail.current.range-start::before,
+.linea-playback-rail.current.range-end::after {
+  background: rgba(212, 115, 74, 0.52);
 }
 
 /* ── selection popover ── */

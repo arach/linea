@@ -2504,6 +2504,10 @@ function ReaderPanel({
   settings,
   activeParagraphId,
   activePageNumber,
+  playbackRangePageNumber,
+  playbackRangeStartParagraphId,
+  playbackRangeEndParagraphId,
+  playbackParagraphStateById,
   selectedParagraphId,
   isAudioActive,
   onSelectPage,
@@ -2522,6 +2526,10 @@ function ReaderPanel({
   settings: ReaderSettings;
   activeParagraphId: string | null;
   activePageNumber: number | null;
+  playbackRangePageNumber: number | null;
+  playbackRangeStartParagraphId: string | null;
+  playbackRangeEndParagraphId: string | null;
+  playbackParagraphStateById: Record<string, "completed" | "current" | "upcoming">;
   selectedParagraphId: string | null;
   isAudioActive: boolean;
   onSelectPage: (page: number) => void;
@@ -2539,6 +2547,7 @@ function ReaderPanel({
   const font = readerFonts[settings.font];
   const readerTheme = readerThemes[settings.theme];
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
+  const isPlaybackRangeVisible = playbackRangePageNumber === page.pageNumber;
   const shouldShowPdfSource =
     !page.hasText ||
     ocrStatus?.state === "running" ||
@@ -2616,42 +2625,58 @@ function ReaderPanel({
         >
           {page.paragraphs
             .filter((p) => p.text.trim() !== page.title.trim())
-            .map((paragraph) => (
-            <div
-              key={paragraph.id}
-              role="button"
-              tabIndex={0}
-              data-paragraph-id={paragraph.id}
-              onClick={(e) => {
-                const sel = window.getSelection()?.toString().trim();
-                if (sel) return;
+            .map((paragraph) => {
+              const playbackState = isPlaybackRangeVisible
+                ? playbackParagraphStateById[paragraph.id] ?? null
+                : null;
+              const isActivePlaybackParagraph =
+                isAudioActive &&
+                activePageNumber === page.pageNumber &&
+                activeParagraphId === paragraph.id;
 
-                if (isAudioActive && activePageNumber === page.pageNumber) {
-                  const target = e.target as HTMLElement;
-                  const charOffset = target.dataset.charOffset;
-                  if (charOffset != null) {
-                    onSeekToChar(paragraph.start + Number(charOffset));
-                  } else {
-                    onSeekToChar(paragraph.start);
-                  }
-                  return;
-                }
+              return (
+                <div
+                  key={paragraph.id}
+                  role="button"
+                  tabIndex={0}
+                  data-paragraph-id={paragraph.id}
+                  onClick={(e) => {
+                    const sel = window.getSelection()?.toString().trim();
+                    if (sel) return;
 
-                onSelectParagraph(selectedParagraphId === paragraph.id ? null : paragraph.id);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  onSelectParagraph(selectedParagraphId === paragraph.id ? null : paragraph.id);
-                }
-              }}
-              className={`linea-paragraph${activeParagraphId === paragraph.id ? " active" : ""}${selectedParagraphId === paragraph.id ? " selected" : ""}${paragraph.skip ? " skipped" : ""}${activeParagraphId === paragraph.id ? ` ${readerTheme.activeParagraphClass}` : ""}`}
-            >
-              <span className="linea-paragraph-text">
-                {renderParagraphText(paragraph)}
-              </span>
-            </div>
-          ))}
+                    if (isAudioActive && activePageNumber === page.pageNumber) {
+                      const target = e.target as HTMLElement;
+                      const charOffset = target.dataset.charOffset;
+                      if (charOffset != null) {
+                        onSeekToChar(paragraph.start + Number(charOffset));
+                      } else {
+                        onSeekToChar(paragraph.start);
+                      }
+                      return;
+                    }
+
+                    onSelectParagraph(selectedParagraphId === paragraph.id ? null : paragraph.id);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onSelectParagraph(selectedParagraphId === paragraph.id ? null : paragraph.id);
+                    }
+                  }}
+                  className={`linea-paragraph${isActivePlaybackParagraph ? " active" : ""}${selectedParagraphId === paragraph.id ? " selected" : ""}${paragraph.skip ? " skipped" : ""}${playbackState ? ` playback-${playbackState}` : ""}${playbackRangeStartParagraphId === paragraph.id ? " playback-range-start" : ""}${playbackRangeEndParagraphId === paragraph.id ? " playback-range-end" : ""}${isActivePlaybackParagraph ? ` ${readerTheme.activeParagraphClass}` : ""}`}
+                >
+                  {playbackState ? (
+                    <span
+                      aria-hidden="true"
+                      className={`linea-playback-rail ${playbackState}${playbackRangeStartParagraphId === paragraph.id ? " range-start" : ""}${playbackRangeEndParagraphId === paragraph.id ? " range-end" : ""}`}
+                    />
+                  ) : null}
+                  <span className="linea-paragraph-text">
+                    {renderParagraphText(paragraph)}
+                  </span>
+                </div>
+              );
+            })}
         </div>
       ) : (
         <div style={{ display: "grid", gap: 12, marginTop: 20 }}>
@@ -3161,6 +3186,10 @@ export function App({ initialDocument }: AppProps) {
                 settings={settings}
                 activeParagraphId={voice.activeParagraphId}
                 activePageNumber={voice.activePageNumber}
+                playbackRangePageNumber={voice.playbackRangePageNumber}
+                playbackRangeStartParagraphId={voice.playbackRangeStartParagraphId}
+                playbackRangeEndParagraphId={voice.playbackRangeEndParagraphId}
+                playbackParagraphStateById={voice.playbackParagraphStateById}
                 selectedParagraphId={selectedParagraphId}
                 isAudioActive={voice.isSpeaking || voice.isPaused}
                 onSelectPage={setSelectedPage}

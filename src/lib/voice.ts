@@ -73,6 +73,8 @@ type VoicePlaybackWindow = {
   totalWords: number;
 };
 
+type PlaybackParagraphState = "completed" | "current" | "upcoming";
+
 /**
  * Build playback text and segments, filtering out skipped paragraphs.
  * Returns { text, segments, firstParagraphId } for session construction.
@@ -229,6 +231,70 @@ export function useVoiceConsole({
       ) ?? pageForSession.paragraphs[0] ?? null
     );
   }, [pages, selectedPage, selectedPageData, speechSession, spokenCharacterIndex]);
+  const playbackRange = useMemo(() => {
+    const empty = {
+      pageNumber: null,
+      startParagraphId: null,
+      endParagraphId: null,
+      stateByParagraphId: {} as Record<string, PlaybackParagraphState>,
+    };
+
+    if (!speechSession) {
+      return empty;
+    }
+
+    const segments = speechSession.segments.filter(
+      (segment): segment is OraPlaybackSegment & { id: string } => Boolean(segment.id),
+    );
+
+    if (
+      segments.length === 0 ||
+      !["requesting", "playing", "paused"].includes(activity.phase)
+    ) {
+      return empty;
+    }
+
+    const stateByParagraphId: Record<string, PlaybackParagraphState> = {};
+
+    for (const segment of segments) {
+      if (activity.phase === "requesting") {
+        stateByParagraphId[segment.id] = "upcoming";
+        continue;
+      }
+
+      if (spokenCharacterIndex >= segment.end) {
+        stateByParagraphId[segment.id] = "completed";
+        continue;
+      }
+
+      if (spokenCharacterIndex >= segment.start && spokenCharacterIndex < segment.end) {
+        stateByParagraphId[segment.id] = "current";
+        continue;
+      }
+
+      stateByParagraphId[segment.id] = "upcoming";
+    }
+
+    if (
+      (activity.phase === "playing" || activity.phase === "paused") &&
+      !Object.values(stateByParagraphId).includes("current")
+    ) {
+      const fallbackSegment =
+        segments.find((segment) => stateByParagraphId[segment.id] !== "completed") ??
+        segments[segments.length - 1];
+
+      if (fallbackSegment) {
+        stateByParagraphId[fallbackSegment.id] = "current";
+      }
+    }
+
+    return {
+      pageNumber: speechSession.pageNumber,
+      startParagraphId: segments[0]?.id ?? null,
+      endParagraphId: segments[segments.length - 1]?.id ?? null,
+      stateByParagraphId,
+    };
+  }, [activity.phase, speechSession, spokenCharacterIndex]);
 
   const refreshProviders = async () => {
     const nextProviders = await fetchLineaVoiceProviders();
@@ -468,6 +534,8 @@ export function useVoiceConsole({
     }
 
     stopSpeaking();
+    setSpeechSession(session);
+    setSpokenCharacterIndex(0);
     setVoiceError("");
     const nextWordCount = countWords(session.text);
     const scopeLabel =
@@ -1059,6 +1127,10 @@ export function useVoiceConsole({
     activeCharacterIndex: spokenCharacterIndex + (speechSession?.charOffsetBase ?? 0),
     activeParagraphId: activeParagraph?.id ?? null,
     activePageNumber: speechSession?.pageNumber ?? null,
+    playbackRangePageNumber: playbackRange.pageNumber,
+    playbackRangeStartParagraphId: playbackRange.startParagraphId,
+    playbackRangeEndParagraphId: playbackRange.endParagraphId,
+    playbackParagraphStateById: playbackRange.stateByParagraphId,
     currentSessionLabel: speechSession?.label ?? "",
     currentSessionKind: speechSession?.kind ?? null,
     recognitionSupported,
