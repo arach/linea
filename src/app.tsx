@@ -3022,7 +3022,7 @@ export function App({ initialDocument }: AppProps) {
     pages: document?.pages ?? [],
     selectedPage,
     onSelectPage: setSelectedPage,
-    allowUnavailableProviderPlayback,
+    allowUnavailableProviderPlayback: allowPublicDemoVoicePlayback,
   });
 
   const selectedParagraph = useMemo(
