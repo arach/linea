@@ -25,6 +25,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { RedirectToSignIn } from "@clerk/react";
 import { motion, AnimatePresence } from "motion/react";
 import { createPortal } from "react-dom";
 import {
@@ -67,6 +68,7 @@ import {
 } from "@/lib/dev-inspector";
 import { ClerkAccessControls } from "@/components/clerk-access-controls";
 import { ManagedAccessPanel } from "@/components/managed-access-panel";
+import { getClerkPublishableKey } from "@/lib/clerk-provider";
 import type { LineaManagedAccessSnapshot } from "@/lib/linea-access";
 import { useLineaAccessSnapshot } from "@/lib/use-linea-access";
 import { formatCount, formatMinutes } from "@/lib/utils";
@@ -76,6 +78,71 @@ import { formatCount, formatMinutes } from "@/lib/utils";
 type AppProps = {
   initialDocument: ReaderDocument | null;
 };
+
+function currentUrl() {
+  return typeof window !== "undefined" ? window.location.href : "/";
+}
+
+function useStableRedirectUrl() {
+  const [redirectUrl, setRedirectUrl] = useState("/");
+
+  useEffect(() => {
+    setRedirectUrl(currentUrl());
+  }, []);
+
+  return redirectUrl;
+}
+
+function readBrowserLocation() {
+  if (typeof window === "undefined") {
+    return {
+      pathname: "/",
+      search: "",
+    };
+  }
+
+  return {
+    pathname: window.location.pathname,
+    search: window.location.search,
+  };
+}
+
+function getBasePath() {
+  return import.meta.env.BASE_URL.replace(/\/$/, "");
+}
+
+function getReaderPath() {
+  const base = getBasePath();
+  return `${base || ""}/playground`;
+}
+
+function getDemoPath(sampleFile?: string) {
+  const base = getBasePath();
+  const path = `${base || ""}/demo`;
+  if (!sampleFile) {
+    return path;
+  }
+
+  return `${path}?sample=${encodeURIComponent(sampleFile)}`;
+}
+
+function isReaderPath(pathname: string) {
+  return pathname === getReaderPath();
+}
+
+function isDemoPath(pathname: string) {
+  const base = getBasePath();
+  return pathname === `${base || ""}/demo`;
+}
+
+function getDemoSampleFile(search: string) {
+  const selected = new URLSearchParams(search).get("sample");
+  if (selected && FEATURED_DEMO_OPTIONS.some((option) => option.file === selected)) {
+    return selected as (typeof FEATURED_DEMO_OPTIONS)[number]["file"];
+  }
+
+  return "attention-is-all-you-need.pdf" as const;
+}
 
 const FEATURED_DEMO_OPTIONS = [
   {
@@ -100,6 +167,214 @@ const FEATURED_DEMO_OPTIONS = [
     icon: ScanSearch,
   },
 ] as const;
+
+function ManagedAuthRedirect() {
+  const redirectUrl = useStableRedirectUrl();
+  const hasClerkProvider = Boolean(getClerkPublishableKey());
+  const title = hasClerkProvider ? "Taking you to sign in." : "Sign-in is still initializing.";
+  const body = hasClerkProvider
+    ? "Linea is handing this session off to Clerk for secure account verification. After sign-in, you will land right back in your reading space."
+    : "This deployment is missing the client-side Clerk publishable key in the current build, so the sign-in flow cannot start yet.";
+  const stepCopy = hasClerkProvider
+    ? [
+        {
+          label: "Secure handoff",
+          detail: "We verify access first, then open Clerk in a dedicated sign-in flow.",
+          icon: Lock,
+        },
+        {
+          label: "Fast redirect",
+          detail: "Your browser should move to Clerk almost immediately.",
+          icon: ArrowRight,
+        },
+        {
+          label: "Return here",
+          detail: "Once you finish, Clerk sends you straight back into Linea.",
+          icon: Sparkles,
+        },
+      ]
+    : [
+        {
+          label: "Missing client key",
+          detail: "The browser bundle needs a Clerk publishable key before it can render auth.",
+          icon: Lock,
+        },
+        {
+          label: "Server is ready",
+          detail: "Managed access and the API are configured, so only the client build needs attention.",
+          icon: AudioLines,
+        },
+        {
+          label: "Next fix",
+          detail: "Redeploy with the live Clerk env in the client bundle and this screen will disappear.",
+          icon: Sparkles,
+        },
+      ];
+
+  if (!hasClerkProvider) {
+    return (
+      <div className="min-h-screen overflow-hidden bg-[#f7f0e6] text-ink">
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute left-[9%] top-[14%] h-56 w-56 rounded-full bg-accent/10 blur-[92px]" />
+          <div className="absolute bottom-[10%] right-[8%] h-72 w-72 rounded-full bg-[#d9c2ad]/30 blur-[112px]" />
+        </div>
+        <div className="relative flex min-h-screen items-center justify-center px-5 py-14 sm:px-8">
+          <div className="relative w-full max-w-[1040px] overflow-hidden rounded-[34px] border border-black/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,242,235,0.96))] shadow-[0_40px_120px_-64px_rgba(0,0,0,0.38)]">
+            <div className="grid gap-8 px-6 py-7 sm:px-8 lg:grid-cols-[minmax(0,1.1fr)_320px] lg:px-10 lg:py-10">
+              <div className="space-y-6">
+                <div className="inline-flex items-center gap-2 rounded-full border border-accent/12 bg-accent/8 px-3 py-1.5">
+                  <Lock size={12} className="text-accent" />
+                  <span className="text-[10px] font-mono font-semibold uppercase tracking-[0.18em] text-accent">
+                    Account handoff
+                  </span>
+                </div>
+                <div className="space-y-4">
+                  <h1 className="max-w-[14ch] font-serif text-[2.6rem] leading-[0.94] tracking-[-0.05em] text-ink sm:text-[3.55rem]">
+                    {title}
+                  </h1>
+                  <p className="max-w-[36rem] text-[1rem] leading-[1.85] text-ink/64">
+                    {body}
+                  </p>
+                </div>
+                <div className="rounded-[24px] border border-black/8 bg-white/72 p-5 shadow-[0_24px_60px_-48px_rgba(0,0,0,0.34)]">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-[16px] bg-accent/12 text-accent">
+                      {hasClerkProvider ? <LoaderCircle size={18} className="animate-spin" /> : <Lock size={18} />}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/48">
+                        {hasClerkProvider ? "Redirect in progress" : "Waiting on configuration"}
+                      </div>
+                      <div className="mt-1 text-[1rem] font-medium text-ink">
+                        {hasClerkProvider ? "Clerk is opening in a secure auth flow." : "This build needs one more client-side env."}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-black/6">
+                    <div className={`h-full rounded-full bg-accent ${hasClerkProvider ? "w-2/3 animate-pulse" : "w-1/3"}`} />
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-[28px] border border-black/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.86),rgba(247,240,233,0.92))] p-5 shadow-[0_30px_80px_-62px_rgba(0,0,0,0.4)]">
+                <div className="space-y-3">
+                  <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/46">
+                    What Linea is doing
+                  </div>
+                  {stepCopy.map((step) => {
+                    const Icon = step.icon;
+                    return (
+                      <div
+                        key={step.label}
+                        className="rounded-[20px] border border-black/8 bg-white/82 p-4"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] bg-accent/12 text-accent">
+                            <Icon size={15} />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/46">
+                              {step.label}
+                            </div>
+                            <p className="mt-2 text-[13px] leading-6 text-ink/62">
+                              {step.detail}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen overflow-hidden bg-[#f7f0e6] text-ink">
+      <RedirectToSignIn
+        forceRedirectUrl={redirectUrl}
+        fallbackRedirectUrl={redirectUrl}
+      />
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute left-[10%] top-[14%] h-56 w-56 rounded-full bg-accent/12 blur-[92px]" />
+        <div className="absolute bottom-[8%] right-[10%] h-72 w-72 rounded-full bg-[#dac8b8]/36 blur-[110px]" />
+      </div>
+      <div className="relative flex min-h-screen items-center justify-center px-5 py-14 sm:px-8">
+        <div className="relative w-full max-w-[1040px] overflow-hidden rounded-[34px] border border-black/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,242,235,0.96))] shadow-[0_40px_120px_-64px_rgba(0,0,0,0.38)]">
+          <div className="grid gap-8 px-6 py-7 sm:px-8 lg:grid-cols-[minmax(0,1.1fr)_320px] lg:px-10 lg:py-10">
+            <div className="space-y-6">
+              <div className="inline-flex items-center gap-2 rounded-full border border-accent/12 bg-accent/8 px-3 py-1.5">
+                <Lock size={12} className="text-accent" />
+                <span className="text-[10px] font-mono font-semibold uppercase tracking-[0.18em] text-accent">
+                  Secure sign-in
+                </span>
+              </div>
+              <div className="space-y-4">
+                <h1 className="max-w-[14ch] font-serif text-[2.6rem] leading-[0.94] tracking-[-0.05em] text-ink sm:text-[3.55rem]">
+                  {title}
+                </h1>
+                <p className="max-w-[36rem] text-[1rem] leading-[1.85] text-ink/64">
+                  {body}
+                </p>
+              </div>
+              <div className="rounded-[24px] border border-black/8 bg-white/72 p-5 shadow-[0_24px_60px_-48px_rgba(0,0,0,0.34)]">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-[16px] bg-accent/12 text-accent">
+                    <LoaderCircle size={18} className="animate-spin" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/48">
+                      Redirect in progress
+                    </div>
+                    <div className="mt-1 text-[1rem] font-medium text-ink">
+                      Clerk should take over in just a moment.
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-black/6">
+                  <div className="h-full w-2/3 rounded-full bg-accent animate-pulse" />
+                </div>
+              </div>
+            </div>
+            <div className="rounded-[28px] border border-black/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.86),rgba(247,240,233,0.92))] p-5 shadow-[0_30px_80px_-62px_rgba(0,0,0,0.4)]">
+              <div className="space-y-3">
+                <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/46">
+                  What happens next
+                </div>
+                {stepCopy.map((step) => {
+                  const Icon = step.icon;
+                  return (
+                    <div
+                      key={step.label}
+                      className="rounded-[20px] border border-black/8 bg-white/82 p-4"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] bg-accent/12 text-accent">
+                          <Icon size={15} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/46">
+                            {step.label}
+                          </div>
+                          <p className="mt-2 text-[13px] leading-6 text-ink/62">
+                            {step.detail}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function formatLandingQuota(limit: number | null, unit: "chars" | "seconds") {
   if (limit == null) {
@@ -1327,6 +1602,7 @@ const SAMPLE_DOCUMENTS = [
 
 function Header({
   document,
+  onGoHome,
   onUploadClick,
   onLoadSample,
   loadingSample,
@@ -1341,6 +1617,7 @@ function Header({
   accessError,
 }: {
   document: ReaderDocument | null;
+  onGoHome: () => void;
   onUploadClick: () => void;
   onLoadSample: (file: string, label: string, options?: { localPath?: string }) => void;
   loadingSample: string | null;
@@ -1374,7 +1651,14 @@ function Header({
     <header className="linea-header">
       <div className="wrap-wide">
         <div className="linea-header-brand">
-          <span className="linea-logo">Linea</span>
+          <button
+            type="button"
+            className="linea-logo"
+            onClick={onGoHome}
+            style={{ background: "transparent", border: 0, padding: 0, cursor: "pointer" }}
+          >
+            Linea
+          </button>
           {document && <span className="linea-header-sub">Reader</span>}
         </div>
         <nav className="linea-nav">
@@ -2014,7 +2298,7 @@ function Landing({
   accessSnapshot,
 }: {
   onFile: (file: File) => void;
-  onOpenDemo: () => void;
+  onOpenDemo: (sampleFile?: (typeof FEATURED_DEMO_OPTIONS)[number]["file"]) => void;
   loading: boolean;
   loadingSample: string | null;
   progress: ExtractionProgress | null;
@@ -2026,6 +2310,10 @@ function Landing({
   const [isDragging, setIsDragging] = useState(false);
   const [welcomeDismissed, setWelcomeDismissed] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const shouldGateReaderEntry =
+    accessSnapshot.enabled &&
+    accessSnapshot.clerkConfigured &&
+    accessSnapshot.access.status === "signed-out";
   const welcomeStorageKey = accessSnapshot.user
     ? `linea:landing-welcome:${accessSnapshot.user.id}:${accessSnapshot.access.status}:${accessSnapshot.access.role}`
     : null;
@@ -2080,6 +2368,15 @@ function Landing({
     Boolean(accessSnapshot.user) &&
     !welcomeDismissed;
 
+  const openPdfFromLanding = useCallback(() => {
+    if (shouldGateReaderEntry) {
+      window.location.assign(getReaderPath());
+      return;
+    }
+
+    inputRef.current?.click();
+  }, [shouldGateReaderEntry]);
+
   return (
     <div className="min-h-screen bg-bg selection:bg-accent/20 selection:text-ink">
       <AnimatePresence>
@@ -2089,7 +2386,7 @@ function Landing({
             onDismiss={dismissWelcome}
             onOpenPdf={() => {
               dismissWelcome();
-              inputRef.current?.click();
+              openPdfFromLanding();
             }}
             onDropPdf={(file) => {
               dismissWelcome();
@@ -2097,14 +2394,7 @@ function Landing({
             }}
             onOpenSample={(sampleFile) => {
               dismissWelcome();
-              const base = import.meta.env.BASE_URL.replace(/\/$/, "");
-              const sample = SAMPLE_DOCUMENTS.find((entry) => entry.file === sampleFile);
-              if (!sample) {
-                return;
-              }
-              void loadSamplePdf(`${base}/samples/${sample.file}`, sample.label, {
-                localPath: sample.localPath,
-              });
+              onOpenDemo(sampleFile);
             }}
             loading={loading}
             loadingSample={loadingSample}
@@ -2148,10 +2438,15 @@ function Landing({
       {/* Navigation */}
       <nav className="border-b border-ink/8 px-6 py-5 md:px-8">
         <div className="mx-auto flex max-w-[1240px] items-center justify-between">
-          <div className="text-[11px] font-mono font-semibold uppercase tracking-[0.28em] text-ink pl-2">Linea</div>
+          <a
+            href={getBasePath() || "/"}
+            className="pl-2 text-[11px] font-mono font-semibold uppercase tracking-[0.28em] text-ink transition-colors hover:text-ink/72"
+          >
+            Linea
+          </a>
           <div className="flex items-center gap-4 text-[10px] font-mono uppercase tracking-[0.16em] text-ink/48">
             <a
-              href={`${import.meta.env.BASE_URL}?demo=1`}
+              href={getDemoPath()}
               onClick={(event) => {
                 event.preventDefault();
                 onOpenDemo();
@@ -2198,7 +2493,7 @@ function Landing({
               <div className="flex flex-col gap-3.5 sm:flex-row">
                 <button
                   type="button"
-                  onClick={() => inputRef.current?.click()}
+                  onClick={openPdfFromLanding}
                   disabled={loading}
                   className="group flex items-center justify-center gap-2 rounded-full bg-accent px-5 py-2.5 text-[9px] font-mono font-semibold uppercase tracking-[0.11em] text-white shadow-xl shadow-accent/20 transition-all hover:brightness-110 disabled:opacity-50 sm:px-6 sm:py-3"
                 >
@@ -2206,7 +2501,7 @@ function Landing({
                   {loading ? "Opening..." : "Open a PDF"}
                 </button>
                 <a
-                  href={`${import.meta.env.BASE_URL}?demo=1`}
+                  href={getDemoPath()}
                   onClick={(event) => {
                     event.preventDefault();
                     onOpenDemo();
@@ -2679,6 +2974,7 @@ function ReaderPanel({
 export function App({ initialDocument }: AppProps) {
   const { theme, toggle: toggleTheme } = useTheme();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [browserLocation, setBrowserLocation] = useState(readBrowserLocation);
   const [document, setDocument] = useState<ReaderDocument | null>(initialDocument);
   const [pdfData, setPdfData] = useState<Uint8Array | null>(null);
   const [selectedPage, setSelectedPage] = useState(1);
@@ -2695,14 +2991,27 @@ export function App({ initialDocument }: AppProps) {
   >({});
 
   const { doc: pdfDoc } = usePdfDocument(pdfData);
-  const autoLoadedRef = useRef(false);
+  const autoLoadedRef = useRef<string | null>(null);
   const attemptedOcrRef = useRef<Set<string>>(new Set());
+  const loadSequenceRef = useRef(0);
 
   const currentPage = useMemo(
     () => document?.pages.find((p) => p.pageNumber === selectedPage) ?? null,
     [document, selectedPage],
   );
   const managedAccess = useLineaAccessSnapshot();
+  const isProtectedRoute =
+    isReaderPath(browserLocation.pathname) || isDemoPath(browserLocation.pathname);
+  const isDemoRoute = isDemoPath(browserLocation.pathname);
+  const authGateEnabled =
+    managedAccess.snapshot.enabled &&
+    managedAccess.snapshot.clerkConfigured &&
+    Boolean(getClerkPublishableKey());
+  const shouldRedirectToSignIn =
+    !managedAccess.loading &&
+    authGateEnabled &&
+    managedAccess.snapshot.access.status === "signed-out" &&
+    isProtectedRoute;
 
   const voice = useVoiceConsole({
     pages: document?.pages ?? [],
@@ -2714,6 +3023,42 @@ export function App({ initialDocument }: AppProps) {
     () => currentPage?.paragraphs.find((paragraph) => paragraph.id === selectedParagraphId) ?? null,
     [currentPage, selectedParagraphId],
   );
+
+  const syncBrowserLocation = useCallback(() => {
+    setBrowserLocation(readBrowserLocation());
+  }, []);
+
+  const navigateTo = useCallback((url: string, mode: "push" | "replace" = "push") => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (mode === "replace") {
+      window.history.replaceState(null, "", url);
+    } else {
+      window.history.pushState(null, "", url);
+    }
+
+    syncBrowserLocation();
+  }, [syncBrowserLocation]);
+
+  const resetReaderState = useCallback(() => {
+    loadSequenceRef.current += 1;
+    voice.stopSpeaking();
+    voice.stopListening();
+    attemptedOcrRef.current = new Set();
+    setDocument(null);
+    setPdfData(null);
+    setSelectedPage(1);
+    setSelectedParagraphId(null);
+    setSelectedPassage(null);
+    setExpandPage(null);
+    setLoading(false);
+    setLoadingSample(null);
+    setProgress(null);
+    setOcrByPage({});
+    setError("");
+  }, [voice]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2732,7 +3077,34 @@ export function App({ initialDocument }: AppProps) {
     window.localStorage.setItem("linea:reader-settings", JSON.stringify(settings));
   }, [settings]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handlePopState = () => {
+      syncBrowserLocation();
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [syncBrowserLocation]);
+
   const handleFile = async (file: File) => {
+    if (authGateEnabled && managedAccess.snapshot.access.status === "signed-out") {
+      if (typeof window !== "undefined") {
+        window.location.assign(getReaderPath());
+      }
+      return;
+    }
+
+    if (typeof window !== "undefined" && !isProtectedRoute) {
+      navigateTo(getReaderPath());
+    }
+
+    const loadSequence = ++loadSequenceRef.current;
     setLoading(true);
     setError("");
     setProgress(null);
@@ -2742,17 +3114,27 @@ export function App({ initialDocument }: AppProps) {
     voice.stopListening();
     try {
       const fileData = new Uint8Array(await file.arrayBuffer());
+      if (loadSequence !== loadSequenceRef.current) {
+        return;
+      }
       setPdfData(fileData);
       const doc = await loadReaderDocument(file, setProgress);
+      if (loadSequence !== loadSequenceRef.current) {
+        return;
+      }
       startTransition(() => {
         setDocument(doc);
         setSelectedPage(1);
         setSelectedParagraphId(null);
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "The PDF could not be parsed.");
+      if (loadSequence === loadSequenceRef.current) {
+        setError(e instanceof Error ? e.message : "The PDF could not be parsed.");
+      }
     } finally {
-      setLoading(false);
+      if (loadSequence === loadSequenceRef.current) {
+        setLoading(false);
+      }
     }
   };
 
@@ -2761,6 +3143,7 @@ export function App({ initialDocument }: AppProps) {
     name: string,
     options?: { localPath?: string },
   ) => {
+    const loadSequence = ++loadSequenceRef.current;
     setLoading(true);
     setLoadingSample(name);
     setError("");
@@ -2774,6 +3157,9 @@ export function App({ initialDocument }: AppProps) {
       if (!response.ok) throw new Error(`Failed to fetch PDF (${response.status})`);
       const buffer = await response.arrayBuffer();
       const fileData = new Uint8Array(buffer);
+      if (loadSequence !== loadSequenceRef.current) {
+        return;
+      }
       setPdfData(fileData);
       const file = new File([buffer], name.endsWith(".pdf") ? name : `${name}.pdf`, {
         type: "application/pdf",
@@ -2782,51 +3168,98 @@ export function App({ initialDocument }: AppProps) {
         url,
         localPath: options?.localPath,
       });
+      if (loadSequence !== loadSequenceRef.current) {
+        return;
+      }
       startTransition(() => {
         setDocument(doc);
         setSelectedPage(1);
         setSelectedParagraphId(null);
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load sample PDF.");
+      if (loadSequence === loadSequenceRef.current) {
+        setError(e instanceof Error ? e.message : "Failed to load sample PDF.");
+      }
     } finally {
-      setLoading(false);
-      setLoadingSample(null);
+      if (loadSequence === loadSequenceRef.current) {
+        setLoading(false);
+        setLoadingSample(null);
+      }
     }
   };
 
-  const openDemo = useCallback(() => {
-    if (typeof window !== "undefined") {
-      const base = import.meta.env.BASE_URL.replace(/\/$/, "");
-      window.history.pushState(null, "", `${base || ""}/?demo=1`);
+  const openDemo = useCallback((sampleFile?: (typeof FEATURED_DEMO_OPTIONS)[number]["file"]) => {
+    const demoPath = getDemoPath(sampleFile);
+    if (authGateEnabled && managedAccess.snapshot.access.status === "signed-out") {
+      window.location.assign(demoPath);
+      return;
     }
 
-    const whitePaper = SAMPLE_DOCUMENTS.find((sample) => sample.file === "whitepaper.pdf");
+    autoLoadedRef.current = demoPath;
+    navigateTo(demoPath);
+    const targetFile = sampleFile ?? "attention-is-all-you-need.pdf";
+    const selectedSample = SAMPLE_DOCUMENTS.find((sample) => sample.file === targetFile);
     void loadSamplePdf(
-      `${import.meta.env.BASE_URL.replace(/\/$/, "")}/samples/whitepaper.pdf`,
-      "White Paper",
-      { localPath: whitePaper?.localPath },
+      `${getBasePath()}/samples/${targetFile}`,
+      selectedSample?.label ?? "White Paper",
+      { localPath: selectedSample?.localPath },
     );
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [authGateEnabled, managedAccess.snapshot.access.status, navigateTo]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-load sample PDF on playground route
+  const goHome = useCallback(() => {
+    navigateTo(getBasePath() || "/");
+  }, [navigateTo]);
+
+  useEffect(() => {
+    if (!isProtectedRoute) {
+      autoLoadedRef.current = null;
+      if (document || pdfData || loading || loadingSample || progress || error || expandPage !== null) {
+        resetReaderState();
+      }
+      return;
+    }
+
+    if (!isDemoRoute) {
+      autoLoadedRef.current = null;
+      return;
+    }
+
+    if (shouldRedirectToSignIn) {
+      return;
+    }
+
+    const routeKey = `${browserLocation.pathname}${browserLocation.search}`;
+    if (autoLoadedRef.current === routeKey) {
+      return;
+    }
+
+    autoLoadedRef.current = routeKey;
+    const sampleFile = getDemoSampleFile(browserLocation.search);
+    const sample = SAMPLE_DOCUMENTS.find((entry) => entry.file === sampleFile);
+    void loadSamplePdf(`${getBasePath()}/samples/${sampleFile}`, sample?.label ?? "White Paper", {
+      localPath: sample?.localPath,
+    });
+  }, [
+    browserLocation.pathname,
+    browserLocation.search,
+    document,
+    error,
+    expandPage,
+    isDemoRoute,
+    isProtectedRoute,
+    loading,
+    loadingSample,
+    pdfData,
+    progress,
+    resetReaderState,
+    shouldRedirectToSignIn,
+  ]);
+
+  // Auto-load sample PDF on explicit demo route.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (autoLoadedRef.current) return;
-    const base = import.meta.env.BASE_URL.replace(/\/$/, "");
-    const path = window.location.pathname;
-    const isPlayground =
-      path === `${base}/playground` ||
-      path === "/playground" ||
-      new URLSearchParams(window.location.search).get("demo") === "1";
-    if (isPlayground) {
-      autoLoadedRef.current = true;
-      const whitePaper = SAMPLE_DOCUMENTS.find((sample) => sample.file === "whitepaper.pdf");
-      void loadSamplePdf(`${base}/samples/whitepaper.pdf`, "White Paper", {
-        localPath: whitePaper?.localPath,
-      });
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    syncBrowserLocation();
+  }, [syncBrowserLocation]);
 
   const handleReadFromParagraph = useCallback((paragraph: ReaderParagraph) => {
     const selection = typeof window !== "undefined" ? window.getSelection()?.toString().trim() : "";
@@ -2985,6 +3418,10 @@ export function App({ initialDocument }: AppProps) {
     );
   }
 
+  if (shouldRedirectToSignIn) {
+    return <ManagedAuthRedirect />;
+  }
+
   /* ── no document ── */
 
   if (!document) {
@@ -3009,6 +3446,7 @@ export function App({ initialDocument }: AppProps) {
     <div className="linea-page linea-bg-document linea-frame">
       <Header
         document={document}
+        onGoHome={goHome}
         onUploadClick={() => fileInputRef.current?.click()}
         onLoadSample={(url, name, options) => void loadSamplePdf(url, name, options)}
         loadingSample={loadingSample}

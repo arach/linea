@@ -11,6 +11,8 @@
     "build:server": "tsup server/index.ts --format esm --out-dir dist --target node22 --splitting false",
     "build:vercel-api": "tsup server/vercel-access.ts server/vercel-vox.ts --format esm --out-dir dist/vercel --target node22 --splitting false",
     "build:static": "vite build --outDir dist/static",
+    "seed:attention-demo": "bun scripts/seed-attention-demo.ts",
+    "upload:attention-demo": "bun scripts/upload-attention-demo-to-blob.ts",
     "start": "NODE_ENV=production bun dist/index.js"
   },
   "dependencies": {
@@ -23,6 +25,7 @@
     "@fontsource/space-grotesk": "^5.2.8",
     "@radix-ui/react-scroll-area": "^1.2.10",
     "@radix-ui/react-slot": "^1.2.4",
+    "@vercel/blob": "^2.3.1",
     "@voxd/client": "0.2.0",
     "agentation": "^2.3.3",
     "class-variance-authority": "^0.7.1",

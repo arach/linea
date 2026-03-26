@@ -5,3 +5,5 @@ dist/
 pnpm-lock.yaml
 .env*
 .vercel
+public/vox-cache/
+server/vox/seeded-cache.json

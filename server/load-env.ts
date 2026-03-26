@@ -39,5 +39,6 @@ function applyEnvFile(root: string, fileName: string) {
 
 export function loadServerEnv(root: string) {
   applyEnvFile(root, ".env");
+  applyEnvFile(root, ".vercel/.env.blob.local");
   applyEnvFile(root, ".env.local");
 }

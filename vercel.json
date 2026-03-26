@@ -1,4 +1,15 @@
 {
   "buildCommand": "bun run build",
-  "outputDirectory": "dist/client"
+  "outputDirectory": "dist/client",
+  "headers": [
+    {
+      "source": "/vox-cache/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    }
+  ]
 }

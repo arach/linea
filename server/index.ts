@@ -27,6 +27,14 @@ app.use(access.middleware());
 app.use("/api/access", createAccessRouter(access));
 app.use("/api/vox", createVoxRouter(access));
 app.use(
+  "/vox-cache",
+  express.static(path.resolve(clientDist, "vox-cache"), {
+    immutable: true,
+    maxAge: "1y",
+    index: false,
+  }),
+);
+app.use(
   express.static(clientDist, {
     index: false,
     extensions: ["html"],

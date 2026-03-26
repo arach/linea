@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import type { LineaVoiceProviderId, LineaVoiceSynthesisRequest } from "../../src/lib/linea-voice";
+import { getSeededCacheEntries } from "./seeded-cache";
 import type { VoxAlignment, VoxCacheEntry } from "./types";
 
 function resolveCacheRoot() {
@@ -61,6 +62,12 @@ export class VoxCache {
   }
 
   async get(cacheKey: string) {
+    const seededCacheEntries = await getSeededCacheEntries();
+    const seededEntry = seededCacheEntries[cacheKey];
+    if (seededEntry) {
+      return seededEntry;
+    }
+
     await this.ensureCacheDir();
 
     try {
@@ -93,6 +100,8 @@ export class VoxCache {
       rate: input.rate,
       format: "mp3",
       filePath: this.audioPath(input.cacheKey),
+      audioUrl: null,
+      immutable: false,
       text: input.text,
       createdAt: new Date().toISOString(),
       source: input.source,

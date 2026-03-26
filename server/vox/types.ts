@@ -25,7 +25,9 @@ export type VoxCacheEntry = {
   voice: string;
   rate: number;
   format: "mp3";
-  filePath: string;
+  filePath?: string | null;
+  audioUrl?: string | null;
+  immutable?: boolean;
   text: string;
   createdAt: string;
   source?: LineaVoiceSynthesisRequest["source"];

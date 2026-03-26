@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import path from "node:path";
 
 import type { OraAudioFormat } from "@arach/ora";
 
@@ -202,7 +203,7 @@ export class VoxService {
         rate,
         format: "mp3",
         cached: true,
-        audioUrl: `/api/vox/audio/${cacheKey}`,
+        audioUrl: cachedEntry.audioUrl ?? `/api/vox/audio/${cacheKey}`,
         source: cachedEntry.source,
       };
     }
@@ -297,7 +298,7 @@ export class VoxService {
         voice: cachedEntry.voice,
       });
     }
-    return cachedEntry?.filePath ?? null;
+    return this.resolveEntryAudioPath(cachedEntry);
   }
 
   async getAlignment(cacheKey: string): Promise<VoxAlignment | null> {
@@ -334,7 +335,12 @@ export class VoxService {
       return null;
     }
 
-    const whisperResult = await this.alignWithWhisper(entry.filePath, scope);
+    const audioPath = await this.resolveEntryAudioPath(entry);
+    if (!audioPath) {
+      throw new Error("Audio file is not available for alignment");
+    }
+
+    const whisperResult = await this.alignWithWhisper(audioPath, scope);
     const words = whisperResult.words;
     const durationMs = whisperResult.durationMs;
     console.info("[linea:vox] alignment-source", { source: "whisper-api" });
@@ -354,6 +360,29 @@ export class VoxService {
     });
 
     return alignment;
+  }
+
+  private async resolveEntryAudioPath(entry: { filePath?: string | null; audioUrl?: string | null } | null) {
+    if (!entry) {
+      return null;
+    }
+
+    if (entry.filePath) {
+      return entry.filePath;
+    }
+
+    if (!entry.audioUrl?.startsWith("/vox-cache/")) {
+      return null;
+    }
+
+    const staticAudioPath = path.join(process.cwd(), "public", entry.audioUrl.replace(/^\//, ""));
+
+    try {
+      await fs.access(staticAudioPath);
+      return staticAudioPath;
+    } catch {
+      return null;
+    }
   }
 
   private async canAlign(scope?: VoxCredentialScope) {
