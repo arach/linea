@@ -19,7 +19,7 @@ if (!import.meta.env.DEV) {
 }
 
 const root = document.getElementById("root")!;
-const hasSSR = root.innerHTML.trim().length > 0;
+const hasSSR = root.innerHTML.replace(/<!--[\s\S]*?-->/g, "").trim().length > 0;
 
 const tree = (
   <StrictMode>
