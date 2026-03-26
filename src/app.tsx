@@ -1287,8 +1287,58 @@ function renderDimSpans(paragraph: ReaderParagraph) {
   return parts;
 }
 
-function renderParagraphText(paragraph: ReaderParagraph) {
-  return renderDimSpans(paragraph);
+function renderParagraphText(
+  paragraph: ReaderParagraph,
+  options?: { highlightEnd?: number },
+) {
+  const highlightEnd = Math.max(0, Math.min(paragraph.text.length, options?.highlightEnd ?? 0));
+  const dimSpans = paragraph.dimSpans ?? [];
+
+  if (dimSpans.length === 0 && highlightEnd === 0) {
+    return (
+      <span className="linea-text-fragment" data-char-offset={0}>
+        {paragraph.text}
+      </span>
+    );
+  }
+
+  const breakpoints = new Set<number>([0, paragraph.text.length, highlightEnd]);
+  for (const span of dimSpans) {
+    breakpoints.add(span.start);
+    breakpoints.add(span.end);
+  }
+
+  const sortedPoints = Array.from(breakpoints).sort((left, right) => left - right);
+  const parts: React.ReactNode[] = [];
+
+  for (let index = 0; index < sortedPoints.length - 1; index += 1) {
+    const start = sortedPoints[index]!;
+    const end = sortedPoints[index + 1]!;
+    if (end <= start) {
+      continue;
+    }
+
+    const text = paragraph.text.slice(start, end);
+    const isDimmed = dimSpans.some((span) => start < span.end && end > span.start);
+    const isHighlighted = highlightEnd > 0 && end <= highlightEnd;
+    const className = [
+      "linea-text-fragment",
+      isDimmed ? "linea-dim-span" : "",
+      isHighlighted ? "linea-reading-highlight" : "",
+    ].filter(Boolean).join(" ");
+
+    parts.push(
+      <span
+        key={`${paragraph.id}-${start}-${end}`}
+        className={className}
+        data-char-offset={start}
+      >
+        {text}
+      </span>,
+    );
+  }
+
+  return parts;
 }
 
 type ReaderTextSelection = {
@@ -2641,6 +2691,7 @@ function ReaderPanel({
   selectedPage,
   settings,
   activeParagraphId,
+  activeCharacterIndex,
   activePageNumber,
   playbackRangePageNumber,
   playbackRangeStartParagraphId,
@@ -2665,6 +2716,7 @@ function ReaderPanel({
   selectedPage: number;
   settings: ReaderSettings;
   activeParagraphId: string | null;
+  activeCharacterIndex: number;
   activePageNumber: number | null;
   playbackRangePageNumber: number | null;
   playbackRangeStartParagraphId: string | null;
@@ -2859,6 +2911,9 @@ function ReaderPanel({
                 isAudioActive &&
                 activePageNumber === page.pageNumber &&
                 activeParagraphId === paragraph.id;
+              const activeHighlightEnd = isActivePlaybackParagraph
+                ? Math.max(0, Math.min(paragraph.text.length, activeCharacterIndex - paragraph.start))
+                : 0;
 
               return (
                 <div
@@ -2898,7 +2953,9 @@ function ReaderPanel({
                     />
                   ) : null}
                   <span className="linea-paragraph-text">
-                    {renderParagraphText(paragraph)}
+                    {renderParagraphText(paragraph, {
+                      highlightEnd: activeHighlightEnd,
+                    })}
                   </span>
                 </div>
               );
@@ -3569,6 +3626,7 @@ export function App({ initialDocument }: AppProps) {
                 selectedPage={selectedPage}
                 settings={settings}
                 activeParagraphId={voice.activeParagraphId}
+                activeCharacterIndex={voice.activeCharacterIndex}
                 activePageNumber={voice.activePageNumber}
                 playbackRangePageNumber={voice.playbackRangePageNumber}
                 playbackRangeStartParagraphId={voice.playbackRangeStartParagraphId}

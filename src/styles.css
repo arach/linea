@@ -1762,6 +1762,31 @@ textarea {
   white-space: pre-wrap;
 }
 
+.linea-text-fragment {
+  display: inline;
+  border-radius: 0.24em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.linea-reading-highlight {
+  background: rgba(212, 115, 74, 0.14);
+  color: var(--text);
+  box-shadow: inset 0 -1px 0 rgba(212, 115, 74, 0.08);
+}
+
+.linea-paragraph.active .linea-reading-highlight {
+  background: rgba(212, 115, 74, 0.18);
+}
+
+.linea-dim-span.linea-reading-highlight {
+  opacity: 0.82;
+}
+
 .linea-playback-rail {
   position: absolute;
   left: 9px;
