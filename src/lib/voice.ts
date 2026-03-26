@@ -26,16 +26,20 @@ type VoiceConsoleOptions = {
   selectedPage: number;
   onSelectPage: (pageNumber: number) => void;
   allowUnavailableProviderPlayback?: boolean;
+  preferAlignedPageClipPlayback?: boolean;
 };
 
 type SpeechSession = {
   pageNumber: number;
   text: string;
+  displayText?: string;
   label: string;
   paragraphId: string | null;
+  requestParagraphId?: string | null;
   charOffsetBase: number;
   kind: "page" | "paragraph" | "selection";
   segments: OraPlaybackSegment[];
+  clipCharRange?: { start: number; end: number } | null;
 };
 
 type VoiceActivityPhase =
@@ -106,8 +110,56 @@ function buildPlaybackContent(page: ReaderPage, startOffset = 0) {
   };
 }
 
-function createSessionSegments(page: ReaderPage, startOffset = 0): OraPlaybackSegment[] {
-  return buildPlaybackContent(page, startOffset).segments;
+function buildParagraphPlaybackContent(paragraph: ReaderParagraph) {
+  return {
+    text: paragraph.text,
+    segments: [
+      {
+        id: paragraph.id,
+        start: 0,
+        end: paragraph.text.length,
+        label: paragraph.id,
+      },
+    ] satisfies OraPlaybackSegment[],
+  };
+}
+
+const wordTokenPattern = /\p{L}[\p{L}\p{N}'’-]*|\p{N}+/gu;
+
+function createWordTokens(text: string) {
+  return Array.from(text.matchAll(wordTokenPattern)).map((match, wordIndex) => ({
+      wordIndex,
+      start: match.index ?? 0,
+      end: (match.index ?? 0) + (match[0]?.length ?? 0),
+    }));
+}
+
+function resolveClipTiming(
+  text: string,
+  clipCharRange: { start: number; end: number },
+  words: Array<{ start: number; end: number }>,
+) {
+  const wordTokens = createWordTokens(text);
+  const matchingWords = wordTokens.filter(
+    (token) => token.end > clipCharRange.start && token.start < clipCharRange.end,
+  );
+
+  if (matchingWords.length === 0 || words.length === 0) {
+    return null;
+  }
+
+  const startWordIndex = Math.min(matchingWords[0].wordIndex, words.length - 1);
+  const endWordIndex = Math.min(matchingWords[matchingWords.length - 1].wordIndex, words.length - 1);
+  const startMs = Math.max(0, words[startWordIndex]?.start ?? 0) * 1000;
+  const endMs = Math.max(startMs, (words[endWordIndex]?.end ?? words[startWordIndex]?.end ?? 0) * 1000);
+
+  return {
+    startMs,
+    endMs,
+    startWordIndex,
+    endWordIndex,
+    totalWords: Math.max(1, endWordIndex - startWordIndex + 1),
+  };
 }
 
 function isBrowser() {
@@ -176,6 +228,7 @@ export function useVoiceConsole({
   selectedPage,
   onSelectPage,
   allowUnavailableProviderPlayback = false,
+  preferAlignedPageClipPlayback = false,
 }: VoiceConsoleOptions) {
   const [providers, setProviders] = useState<LineaVoiceProviderStatus[]>([]);
   const [capabilities, setCapabilities] = useState<LineaVoiceCapabilities>({ alignment: false });
@@ -567,7 +620,8 @@ export function useVoiceConsole({
     setSpeechSession(session);
     setSpokenCharacterIndex(0);
     setVoiceError("");
-    const nextWordCount = countWords(session.text);
+    const visibleText = session.displayText ?? session.text;
+    const nextWordCount = countWords(visibleText);
     const scopeLabel =
       session.kind === "page"
         ? `Page ${session.pageNumber}`
@@ -621,7 +675,7 @@ export function useVoiceConsole({
         format: "mp3",
         source: {
           pageNumber: session.pageNumber,
-          paragraphId: session.paragraphId,
+          paragraphId: session.requestParagraphId ?? session.paragraphId,
         },
       }, {
         signal: abortController.signal,
@@ -641,6 +695,37 @@ export function useVoiceConsole({
       if (response.audioDataBase64) {
         inlineAudioUrlRef.current = playableAudioUrl;
       }
+
+      const audioUrl = response.audioUrl.startsWith("http")
+        ? response.audioUrl
+        : `${window.location.origin}${response.audioUrl}`;
+      const shouldFetchAlignment =
+        Boolean(session.clipCharRange) ||
+        Boolean(runtime?.capabilities.features?.alignment) ||
+        capabilities.alignment;
+      const alignmentPromise = shouldFetchAlignment
+        ? (
+          runtime
+            ? alignWithVoxCompanion(runtime, {
+                audioUrl,
+                cacheKey: response.cacheKey,
+                pageNumber: session.pageNumber,
+                paragraphId: session.paragraphId,
+              })
+            : alignLineaVoice(response.cacheKey)
+        ).catch((err) => {
+          debugVoice(runtime ? "companion-alignment-failed" : "alignment-failed", {
+            error: err instanceof Error ? err.message : "unknown",
+          });
+          return null;
+        })
+        : null;
+      let resolvedAlignment = session.clipCharRange && alignmentPromise
+        ? await alignmentPromise
+        : null;
+      const clipTiming = session.clipCharRange && resolvedAlignment
+        ? resolveClipTiming(session.text, session.clipCharRange, resolvedAlignment.words)
+        : null;
 
       setActivity({
         phase: "requesting",
@@ -662,17 +747,7 @@ export function useVoiceConsole({
 
       const audio = new Audio(playableAudioUrl);
       audioRef.current = audio;
-
-      audio.onloadedmetadata = () => {
-        const durationMs = Number.isFinite(audio.duration) ? Math.max(0, audio.duration * 1000) : 0;
-        setPlaybackWindow({
-          elapsedMs: 0,
-          durationMs,
-          progress: 0,
-          currentWord: 0,
-          totalWords: nextWordCount,
-        });
-      };
+      let clipCompleted = false;
 
       const calibrateTracker = () => {
         if (!trackerRef.current) return;
@@ -683,7 +758,48 @@ export function useVoiceConsole({
         }
       };
 
-      audio.onloadedmetadata = () => calibrateTracker();
+      const finishPlayback = () => {
+        if (clipCompleted) {
+          return;
+        }
+
+        clipCompleted = true;
+        debugVoice("audio-ended");
+        setActivity((current) => ({
+          ...current,
+          phase: "ended",
+          requestStage: null,
+          label: "Finished",
+          detail: "Playback completed.",
+        }));
+        setPlaybackWindow((current) => ({
+          ...current,
+          elapsedMs: current.durationMs,
+          progress: 1,
+          currentWord: current.totalWords,
+        }));
+        resetPlayback();
+      };
+
+      audio.onloadedmetadata = () => {
+        const fullDurationMs = Number.isFinite(audio.duration) ? Math.max(0, audio.duration * 1000) : 0;
+        const durationMs = clipTiming
+          ? Math.max(1, clipTiming.endMs - clipTiming.startMs)
+          : fullDurationMs;
+        setPlaybackWindow({
+          elapsedMs: 0,
+          durationMs,
+          progress: 0,
+          currentWord: 0,
+          totalWords: clipTiming?.totalWords ?? nextWordCount,
+        });
+
+        if (clipTiming) {
+          audio.currentTime = clipTiming.startMs / 1000;
+        }
+
+        calibrateTracker();
+      };
 
       audio.onplay = () => {
         debugVoice("audio-play");
@@ -692,6 +808,22 @@ export function useVoiceConsole({
           segments: session.segments,
         });
         calibrateTracker();
+        const tracker = trackerRef.current as OraPlaybackTracker & {
+          applyAlignment?: (words: Array<{ word: string; start: number; end: number }>) => void;
+        };
+        if (resolvedAlignment) {
+          tracker.applyAlignment?.(resolvedAlignment.words);
+        } else if (alignmentPromise) {
+          alignmentPromise.then((alignment) => {
+            if (!alignment || !trackerRef.current) return;
+            resolvedAlignment = alignment;
+            debugVoice("alignment-applied", { wordCount: alignment.words.length, durationMs: alignment.durationMs });
+            const activeTracker = trackerRef.current as OraPlaybackTracker & {
+              applyAlignment?: (words: Array<{ word: string; start: number; end: number }>) => void;
+            };
+            activeTracker.applyAlignment?.(alignment.words);
+          });
+        }
         setIsSpeaking(true);
         setIsPaused(false);
         setSpokenCharacterIndex(0);
@@ -715,39 +847,10 @@ export function useVoiceConsole({
           pageNumber: session.pageNumber,
           paragraphId: session.paragraphId,
         });
-
-        if (runtime?.capabilities.features?.alignment || capabilities.alignment) {
-          const audioUrl = response.audioUrl.startsWith("http")
-            ? response.audioUrl
-            : `${window.location.origin}${response.audioUrl}`;
-
-          const alignPromise = runtime
-            ? alignWithVoxCompanion(runtime, {
-                audioUrl,
-                cacheKey: response.cacheKey,
-                pageNumber: session.pageNumber,
-                paragraphId: session.paragraphId,
-              }).catch((err) => {
-                debugVoice("companion-alignment-failed", {
-                  error: err instanceof Error ? err.message : "unknown",
-                });
-                return null;
-              })
-            : alignLineaVoice(response.cacheKey).catch((err) => {
-                debugVoice("alignment-failed", { error: err instanceof Error ? err.message : "unknown" });
-                return null;
-              });
-
-          alignPromise.then((alignment) => {
-            if (!alignment || !trackerRef.current) return;
-            debugVoice("alignment-applied", { wordCount: alignment.words.length, durationMs: alignment.durationMs });
-            trackerRef.current.applyAlignment(alignment.words);
-          });
-        }
       };
 
       audio.onpause = () => {
-        if (audio.ended) return;
+        if (audio.ended || clipCompleted) return;
         debugVoice("audio-pause");
         setIsPaused(true);
         setIsSpeaking(false);
@@ -761,16 +864,41 @@ export function useVoiceConsole({
       };
 
       audio.ontimeupdate = () => {
+        const currentTimeMs = Math.max(0, audio.currentTime * 1000);
+        if (clipTiming && currentTimeMs >= clipTiming.endMs) {
+          audio.pause();
+          audio.currentTime = clipTiming.endMs / 1000;
+          finishPlayback();
+          return;
+        }
+
         const snapshot = trackerRef.current?.updateFromClock(audio.currentTime * 1000);
         const nextCharIndex = snapshot?.currentCharIndex ?? 0;
         setSpokenCharacterIndex(nextCharIndex);
-        const durationMs = Number.isFinite(audio.duration) ? Math.max(0, audio.duration * 1000) : 0;
-        const elapsedMs = Math.max(0, audio.currentTime * 1000);
+        const durationMs = clipTiming
+          ? Math.max(1, clipTiming.endMs - clipTiming.startMs)
+          : Number.isFinite(audio.duration) ? Math.max(0, audio.duration * 1000) : 0;
+        const elapsedMs = clipTiming
+          ? Math.max(0, currentTimeMs - clipTiming.startMs)
+          : currentTimeMs;
         const progress = durationMs > 0 ? Math.min(1, elapsedMs / durationMs) : 0;
-        const currentWord = Math.min(
-          nextWordCount,
-          Math.max(0, countWords(session.text.slice(0, nextCharIndex))),
-        );
+        const currentWord = clipTiming && resolvedAlignment
+          ? Math.min(
+              clipTiming.totalWords,
+              Math.max(
+                0,
+                resolvedAlignment.words.filter(
+                  (_, index) =>
+                    index >= clipTiming.startWordIndex &&
+                    index <= clipTiming.endWordIndex &&
+                    resolvedAlignment!.words[index]!.start * 1000 <= currentTimeMs,
+                ).length,
+              ),
+            )
+          : Math.min(
+              nextWordCount,
+              Math.max(0, countWords(session.text.slice(0, nextCharIndex))),
+            );
         setPlaybackWindow({
           elapsedMs,
           durationMs,
@@ -781,21 +909,7 @@ export function useVoiceConsole({
       };
 
       audio.onended = () => {
-        debugVoice("audio-ended");
-        setActivity((current) => ({
-          ...current,
-          phase: "ended",
-          requestStage: null,
-          label: "Finished",
-          detail: "Playback completed.",
-        }));
-        setPlaybackWindow((current) => ({
-          ...current,
-          elapsedMs: current.durationMs,
-          progress: 1,
-          currentWord: current.totalWords,
-        }));
-        resetPlayback();
+        finishPlayback();
       };
 
       audio.onerror = () => {
@@ -890,7 +1004,7 @@ export function useVoiceConsole({
   };
 
   const speakFromParagraph = (page: ReaderPage | null, paragraph: ReaderParagraph | null) => {
-    if (!page || !paragraph) {
+    if (!page || !paragraph || paragraph.skip) {
       return;
     }
 
@@ -899,12 +1013,37 @@ export function useVoiceConsole({
       paragraphId: paragraph.id,
     });
 
-    const playback = buildPlaybackContent(page, paragraph.start);
+    if (preferAlignedPageClipPlayback) {
+      const pagePlayback = buildPlaybackContent(page);
+      const targetSegment = pagePlayback.segments.find((segment) => segment.id === paragraph.id);
+
+      if (targetSegment) {
+        void speakSession({
+          pageNumber: page.pageNumber,
+          text: pagePlayback.text,
+          displayText: paragraph.text,
+          label: `Playing paragraph ${paragraph.id.replace("page-", "p")}`,
+          paragraphId: paragraph.id,
+          requestParagraphId: pagePlayback.firstParagraphId ?? paragraph.id,
+          charOffsetBase: 0,
+          kind: "paragraph",
+          segments: pagePlayback.segments,
+          clipCharRange: {
+            start: targetSegment.start,
+            end: targetSegment.end,
+          },
+        });
+        return;
+      }
+    }
+
+    const playback = buildParagraphPlaybackContent(paragraph);
 
     void speakSession({
       pageNumber: page.pageNumber,
       text: playback.text,
-      label: `Reading from paragraph ${paragraph.id.replace("page-", "p")}`,
+      displayText: paragraph.text,
+      label: `Playing paragraph ${paragraph.id.replace("page-", "p")}`,
       paragraphId: paragraph.id,
       charOffsetBase: paragraph.start,
       kind: "paragraph",

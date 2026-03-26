@@ -1993,7 +1993,9 @@ function CommandBar({
   clipCurrentWord,
   clipTotalWords,
   onSeekClip,
-  granularReadControlsEnabled,
+  paragraphPlaybackEnabled,
+  selectionPlaybackEnabled,
+  selectionPlaybackLabel,
 }: {
   document: ReaderDocument;
   page: ReaderPage;
@@ -2022,7 +2024,9 @@ function CommandBar({
   clipCurrentWord: number;
   clipTotalWords: number;
   onSeekClip: (progress: number) => void;
-  granularReadControlsEnabled: boolean;
+  paragraphPlaybackEnabled: boolean;
+  selectionPlaybackEnabled: boolean;
+  selectionPlaybackLabel: string;
 }) {
   const wordCount = selectedParagraph
     ? selectedParagraph.text.split(/\s+/).filter(Boolean).length
@@ -2106,13 +2110,13 @@ function CommandBar({
             </>
           ) : (
             <>
-              {granularReadControlsEnabled && hasSelection ? (
+              {selectionPlaybackEnabled && hasSelection ? (
                 <button type="button" className="linea-btn-secondary linea-btn-icon" onClick={onReadSelection}>
-                  <Play size={14} /> Read selection
+                  <Play size={14} /> {selectionPlaybackLabel}
                 </button>
-              ) : granularReadControlsEnabled && hasParagraphSelected ? (
+              ) : paragraphPlaybackEnabled && hasParagraphSelected ? (
                 <button type="button" className="linea-btn-secondary linea-btn-icon" onClick={onPlayParagraph}>
-                  <Play size={14} /> Read from here
+                  <Play size={14} /> Play paragraph
                 </button>
               ) : (
                 <button type="button" className="linea-btn-secondary linea-btn-icon" onClick={onPlay}>
@@ -2651,7 +2655,8 @@ function ReaderPanel({
   onReadSelection,
   onRunOcr,
   ocrStatus,
-  granularReadControlsEnabled,
+  selectionPlaybackEnabled,
+  selectionPlaybackLabel,
 }: {
   document: ReaderDocument;
   page: ReaderPage;
@@ -2677,7 +2682,8 @@ function ReaderPanel({
     state: "idle" | "probing" | "running" | "completed" | "empty" | "failed";
     message?: string;
   } | null;
-  granularReadControlsEnabled: boolean;
+  selectionPlaybackEnabled: boolean;
+  selectionPlaybackLabel: string;
 }) {
   const articleRef = useRef<HTMLElement | null>(null);
   const font = readerFonts[settings.font];
@@ -2698,6 +2704,12 @@ function ReaderPanel({
   }, [onSelectParagraph, onSelectText, page.pageNumber]);
 
   const handleSelection = () => {
+    if (!selectionPlaybackEnabled) {
+      onSelectText(null);
+      setSelectionRect(null);
+      return;
+    }
+
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || !articleRef.current) {
       onSelectText(null);
@@ -2924,7 +2936,7 @@ function ReaderPanel({
         </div>
       )}
 
-      {granularReadControlsEnabled && selectionRect && createPortal(
+      {selectionPlaybackEnabled && selectionRect && createPortal(
         <div
           className="linea-selection-popover"
           style={{
@@ -2941,7 +2953,7 @@ function ReaderPanel({
               setSelectionRect(null);
             }}
           >
-            <Play size={12} /> Read aloud
+            <Play size={12} /> {selectionPlaybackLabel}
           </button>
         </div>,
         window.document.body,
@@ -3016,8 +3028,11 @@ export function App({ initialDocument }: AppProps) {
     document?.fileName.toLowerCase().includes("attention is all you need"),
   );
   const allowPublicDemoVoicePlayback = isDemoRoute && isAttentionDemoDocument;
-  const granularDemoVoiceControlsEnabled =
-    !(allowPublicDemoVoicePlayback && managedAccess.snapshot.access.status === "signed-out");
+  const isAnonymousPublicDemo =
+    allowPublicDemoVoicePlayback && managedAccess.snapshot.access.status === "signed-out";
+  const paragraphPlaybackEnabled = Boolean(document);
+  const selectionPlaybackEnabled = Boolean(document);
+  const selectionPlaybackLabel = isAnonymousPublicDemo ? "Play paragraph" : "Read selection";
   const shouldRedirectToSignIn =
     !managedAccess.loading &&
     authGateEnabled &&
@@ -3029,6 +3044,7 @@ export function App({ initialDocument }: AppProps) {
     selectedPage,
     onSelectPage: setSelectedPage,
     allowUnavailableProviderPlayback: allowPublicDemoVoicePlayback,
+    preferAlignedPageClipPlayback: isAnonymousPublicDemo,
   });
 
   const selectedParagraph = useMemo(
@@ -3281,8 +3297,24 @@ export function App({ initialDocument }: AppProps) {
 
   const handleReadSelection = useCallback(() => {
     if (!selectedPassage) return;
+    if (isAnonymousPublicDemo && currentPage) {
+      const targetParagraph = currentPage.paragraphs.find(
+        (paragraph) =>
+          !paragraph.skip &&
+          (
+            selectedPassage.paragraphIds.includes(paragraph.id) ||
+            paragraph.id === selectedPassage.paragraphId
+          ),
+      );
+
+      if (targetParagraph) {
+        voice.speakFromParagraph(currentPage, targetParagraph);
+      }
+
+      return;
+    }
     voice.speakSelection(selectedPassage, currentPage);
-  }, [voice, selectedPassage, currentPage]);
+  }, [voice, selectedPassage, currentPage, isAnonymousPublicDemo]);
 
   const handlePlayPage = useCallback(() => {
     voice.speakPage(currentPage ?? undefined);
@@ -3525,7 +3557,9 @@ export function App({ initialDocument }: AppProps) {
                 clipCurrentWord={voice.playbackWindow.currentWord}
                 clipTotalWords={voice.playbackWindow.totalWords}
                 onSeekClip={voice.seekPlayback}
-                granularReadControlsEnabled={granularDemoVoiceControlsEnabled}
+                paragraphPlaybackEnabled={paragraphPlaybackEnabled}
+                selectionPlaybackEnabled={selectionPlaybackEnabled}
+                selectionPlaybackLabel={selectionPlaybackLabel}
               />
               <ReaderPanel
                 document={document}
@@ -3549,7 +3583,8 @@ export function App({ initialDocument }: AppProps) {
                 onReadSelection={handleReadSelection}
                 onRunOcr={() => void runOcrForPage(currentPage.pageNumber, true)}
                 ocrStatus={ocrByPage[currentPage.pageNumber] ?? null}
-                granularReadControlsEnabled={granularDemoVoiceControlsEnabled}
+                selectionPlaybackEnabled={selectionPlaybackEnabled}
+                selectionPlaybackLabel={selectionPlaybackLabel}
               />
             </>
           )}
