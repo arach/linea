@@ -3000,23 +3000,29 @@ export function App({ initialDocument }: AppProps) {
     [document, selectedPage],
   );
   const managedAccess = useLineaAccessSnapshot();
-  const isProtectedRoute =
-    isReaderPath(browserLocation.pathname) || isDemoPath(browserLocation.pathname);
+  const isReaderRoute = isReaderPath(browserLocation.pathname);
   const isDemoRoute = isDemoPath(browserLocation.pathname);
+  const isAppRoute = isReaderRoute || isDemoRoute;
   const authGateEnabled =
     managedAccess.snapshot.enabled &&
     managedAccess.snapshot.clerkConfigured &&
     Boolean(getClerkPublishableKey());
+  const isAttentionDemoDocument = Boolean(
+    document?.source?.url?.includes("attention-is-all-you-need.pdf") ||
+    document?.fileName.toLowerCase().includes("attention is all you need"),
+  );
+  const allowPublicDemoVoicePlayback = isDemoRoute && isAttentionDemoDocument;
   const shouldRedirectToSignIn =
     !managedAccess.loading &&
     authGateEnabled &&
     managedAccess.snapshot.access.status === "signed-out" &&
-    isProtectedRoute;
+    isReaderRoute;
 
   const voice = useVoiceConsole({
     pages: document?.pages ?? [],
     selectedPage,
     onSelectPage: setSelectedPage,
+    allowUnavailableProviderPlayback,
   });
 
   const selectedParagraph = useMemo(
@@ -3100,7 +3106,7 @@ export function App({ initialDocument }: AppProps) {
       return;
     }
 
-    if (typeof window !== "undefined" && !isProtectedRoute) {
+    if (typeof window !== "undefined" && !isReaderRoute) {
       navigateTo(getReaderPath());
     }
 
@@ -3190,11 +3196,6 @@ export function App({ initialDocument }: AppProps) {
 
   const openDemo = useCallback((sampleFile?: (typeof FEATURED_DEMO_OPTIONS)[number]["file"]) => {
     const demoPath = getDemoPath(sampleFile);
-    if (authGateEnabled && managedAccess.snapshot.access.status === "signed-out") {
-      window.location.assign(demoPath);
-      return;
-    }
-
     autoLoadedRef.current = demoPath;
     navigateTo(demoPath);
     const targetFile = sampleFile ?? "attention-is-all-you-need.pdf";
@@ -3204,14 +3205,14 @@ export function App({ initialDocument }: AppProps) {
       selectedSample?.label ?? "White Paper",
       { localPath: selectedSample?.localPath },
     );
-  }, [authGateEnabled, managedAccess.snapshot.access.status, navigateTo]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [navigateTo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const goHome = useCallback(() => {
     navigateTo(getBasePath() || "/");
   }, [navigateTo]);
 
   useEffect(() => {
-    if (!isProtectedRoute) {
+    if (!isAppRoute) {
       autoLoadedRef.current = null;
       if (document || pdfData || loading || loadingSample || progress || error || expandPage !== null) {
         resetReaderState();
@@ -3245,8 +3246,8 @@ export function App({ initialDocument }: AppProps) {
     document,
     error,
     expandPage,
+    isAppRoute,
     isDemoRoute,
-    isProtectedRoute,
     loading,
     loadingSample,
     pdfData,

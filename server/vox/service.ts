@@ -310,6 +310,32 @@ export class VoxService {
     return this.cache.get(cacheKey);
   }
 
+  async getCacheEntryForRequest(request: LineaVoiceSynthesisRequest) {
+    const rate = request.rate ?? 1;
+    const availableVoices = (await this.providers[request.provider]?.listVoices?.()) ?? [];
+    const defaultVoice = availableVoices[0]?.id ?? request.voice;
+    const voice = request.voice || defaultVoice;
+
+    if (!voice) {
+      throw new Error(`No voice is configured for provider: ${request.provider}`);
+    }
+
+    const cacheKey = this.cache.generateKey({
+      provider: request.provider,
+      voice,
+      rate,
+      text: request.text,
+      instructions: request.instructions,
+    });
+
+    return {
+      cacheKey,
+      voice,
+      rate,
+      entry: await this.cache.get(cacheKey),
+    };
+  }
+
   async align(cacheKey: string, scope?: VoxCredentialScope): Promise<VoxAlignment | null> {
     const entry = await this.cache.get(cacheKey);
     if (!entry) {

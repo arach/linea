@@ -25,6 +25,7 @@ type VoiceConsoleOptions = {
   pages: ReaderPage[];
   selectedPage: number;
   onSelectPage: (pageNumber: number) => void;
+  allowUnavailableProviderPlayback?: boolean;
 };
 
 type SpeechSession = {
@@ -174,6 +175,7 @@ export function useVoiceConsole({
   pages,
   selectedPage,
   onSelectPage,
+  allowUnavailableProviderPlayback = false,
 }: VoiceConsoleOptions) {
   const [providers, setProviders] = useState<LineaVoiceProviderStatus[]>([]);
   const [capabilities, setCapabilities] = useState<LineaVoiceCapabilities>({ alignment: false });
@@ -487,7 +489,7 @@ export function useVoiceConsole({
       return;
     }
 
-    if (!selectedProviderMeta?.available) {
+    if (!selectedProviderMeta?.available && !allowUnavailableProviderPlayback) {
       const fallbackProvider =
         providers.find((provider) => provider.available) ?? null;
 
@@ -523,7 +525,7 @@ export function useVoiceConsole({
       setActivity({
         phase: "error",
         label: "Provider unavailable",
-        detail: `${selectedProviderMeta?.label ?? "Selected provider"} is not configured yet.`,
+      detail: `${selectedProviderMeta?.label ?? "Selected provider"} is not configured yet.`,
         scopeLabel: null,
         wordCount: null,
         provider: selectedProvider,
@@ -537,7 +539,7 @@ export function useVoiceConsole({
       return;
     }
 
-    const voiceId = selectedVoice || selectedProviderMeta.defaultVoice;
+    const voiceId = selectedVoice || selectedProviderMeta?.defaultVoice || "";
     if (!voiceId) {
       debugVoice("speak-blocked-no-voice", {
         provider: selectedProvider,

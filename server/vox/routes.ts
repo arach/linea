@@ -15,6 +15,13 @@ function parseProviderId(value: string): LineaVoiceProviderId | null {
   return null;
 }
 
+function isPublicSeededDemoEntry(entry: Awaited<ReturnType<VoxService["getCacheEntry"]>>) {
+  return Boolean(
+    entry?.immutable &&
+    entry.source?.documentId === "attention-is-all-you-need",
+  );
+}
+
 export function createVoxRouter(access = new LineaAccessService()) {
   const router = express.Router();
   const vox = new VoxService();
@@ -134,7 +141,9 @@ export function createVoxRouter(access = new LineaAccessService()) {
       }
 
       const credentialScope = await access.getCredentialScope(req);
-      const session = managedAccessEnabled
+      const requestCache = await vox.getCacheEntryForRequest(payload);
+      const publicSeededDemoRequest = isPublicSeededDemoEntry(requestCache.entry);
+      const session = managedAccessEnabled && !publicSeededDemoRequest
         ? await access.assertCapability(req, "managed-voice", payload.text.length)
         : null;
       const response = await vox.synthesize(payload, credentialScope);
@@ -189,7 +198,8 @@ export function createVoxRouter(access = new LineaAccessService()) {
         ? access.estimateAlignmentSeconds(cacheEntry.text, cacheEntry.rate)
         : 0;
       const hadAlignment = Boolean(cacheEntry?.alignment);
-      const session = managedAccessEnabled
+      const publicSeededDemoRequest = isPublicSeededDemoEntry(cacheEntry) && hadAlignment;
+      const session = managedAccessEnabled && !publicSeededDemoRequest
         ? await access.assertCapability(req, "managed-alignment", estimatedUnits)
         : null;
       const alignment = await vox.align(req.params.cacheKey, credentialScope);
