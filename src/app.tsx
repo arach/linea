@@ -25,7 +25,6 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { RedirectToSignIn } from "@clerk/react";
 import { motion, AnimatePresence } from "motion/react";
 import { createPortal } from "react-dom";
 import {
@@ -68,7 +67,6 @@ import {
 } from "@/lib/dev-inspector";
 import { ClerkAccessControls } from "@/components/clerk-access-controls";
 import { ManagedAccessPanel } from "@/components/managed-access-panel";
-import { getClerkPublishableKey } from "@/lib/clerk-provider";
 import type { LineaManagedAccessSnapshot } from "@/lib/linea-access";
 import { useLineaAccessSnapshot } from "@/lib/use-linea-access";
 import { formatCount, formatMinutes } from "@/lib/utils";
@@ -78,20 +76,6 @@ import { formatCount, formatMinutes } from "@/lib/utils";
 type AppProps = {
   initialDocument: ReaderDocument | null;
 };
-
-function currentUrl() {
-  return typeof window !== "undefined" ? window.location.href : "/";
-}
-
-function useStableRedirectUrl() {
-  const [redirectUrl, setRedirectUrl] = useState("/");
-
-  useEffect(() => {
-    setRedirectUrl(currentUrl());
-  }, []);
-
-  return redirectUrl;
-}
 
 const FEATURED_DEMO_OPTIONS = [
   {
@@ -116,214 +100,6 @@ const FEATURED_DEMO_OPTIONS = [
     icon: ScanSearch,
   },
 ] as const;
-
-function ManagedAuthRedirect() {
-  const redirectUrl = useStableRedirectUrl();
-  const hasClerkProvider = Boolean(getClerkPublishableKey());
-  const title = hasClerkProvider ? "Taking you to sign in." : "Sign-in is still initializing.";
-  const body = hasClerkProvider
-    ? "Linea is handing this session off to Clerk for secure account verification. After sign-in, you will land right back in your reading space."
-    : "This deployment is missing the client-side Clerk publishable key in the current build, so the sign-in flow cannot start yet.";
-  const stepCopy = hasClerkProvider
-    ? [
-        {
-          label: "Secure handoff",
-          detail: "We verify access first, then open Clerk in a dedicated sign-in flow.",
-          icon: Lock,
-        },
-        {
-          label: "Fast redirect",
-          detail: "Your browser should move to Clerk almost immediately.",
-          icon: ArrowRight,
-        },
-        {
-          label: "Return here",
-          detail: "Once you finish, Clerk sends you straight back into Linea.",
-          icon: Sparkles,
-        },
-      ]
-    : [
-        {
-          label: "Missing client key",
-          detail: "The browser bundle needs a Clerk publishable key before it can render auth.",
-          icon: Lock,
-        },
-        {
-          label: "Server is ready",
-          detail: "Managed access and the API are configured, so only the client build needs attention.",
-          icon: AudioLines,
-        },
-        {
-          label: "Next fix",
-          detail: "Redeploy with the live Clerk env in the client bundle and this screen will disappear.",
-          icon: Sparkles,
-        },
-      ];
-
-  if (!hasClerkProvider) {
-    return (
-      <div className="min-h-screen overflow-hidden bg-[#f7f0e6] text-ink">
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute left-[9%] top-[14%] h-56 w-56 rounded-full bg-accent/10 blur-[92px]" />
-          <div className="absolute bottom-[10%] right-[8%] h-72 w-72 rounded-full bg-[#d9c2ad]/30 blur-[112px]" />
-        </div>
-        <div className="relative flex min-h-screen items-center justify-center px-5 py-14 sm:px-8">
-          <div className="relative w-full max-w-[1040px] overflow-hidden rounded-[34px] border border-black/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,242,235,0.96))] shadow-[0_40px_120px_-64px_rgba(0,0,0,0.38)]">
-            <div className="grid gap-8 px-6 py-7 sm:px-8 lg:grid-cols-[minmax(0,1.1fr)_320px] lg:px-10 lg:py-10">
-              <div className="space-y-6">
-                <div className="inline-flex items-center gap-2 rounded-full border border-accent/12 bg-accent/8 px-3 py-1.5">
-                  <Lock size={12} className="text-accent" />
-                  <span className="text-[10px] font-mono font-semibold uppercase tracking-[0.18em] text-accent">
-                    Account handoff
-                  </span>
-                </div>
-                <div className="space-y-4">
-                  <h1 className="max-w-[14ch] font-serif text-[2.6rem] leading-[0.94] tracking-[-0.05em] text-ink sm:text-[3.55rem]">
-                    {title}
-                  </h1>
-                  <p className="max-w-[36rem] text-[1rem] leading-[1.85] text-ink/64">
-                    {body}
-                  </p>
-                </div>
-                <div className="rounded-[24px] border border-black/8 bg-white/72 p-5 shadow-[0_24px_60px_-48px_rgba(0,0,0,0.34)]">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-[16px] bg-accent/12 text-accent">
-                      {hasClerkProvider ? <LoaderCircle size={18} className="animate-spin" /> : <Lock size={18} />}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/48">
-                        {hasClerkProvider ? "Redirect in progress" : "Waiting on configuration"}
-                      </div>
-                      <div className="mt-1 text-[1rem] font-medium text-ink">
-                        {hasClerkProvider ? "Clerk is opening in a secure auth flow." : "This build needs one more client-side env."}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-black/6">
-                    <div className={`h-full rounded-full bg-accent ${hasClerkProvider ? "w-2/3 animate-pulse" : "w-1/3"}`} />
-                  </div>
-                </div>
-              </div>
-              <div className="rounded-[28px] border border-black/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.86),rgba(247,240,233,0.92))] p-5 shadow-[0_30px_80px_-62px_rgba(0,0,0,0.4)]">
-                <div className="space-y-3">
-                  <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/46">
-                    What Linea is doing
-                  </div>
-                  {stepCopy.map((step) => {
-                    const Icon = step.icon;
-                    return (
-                      <div
-                        key={step.label}
-                        className="rounded-[20px] border border-black/8 bg-white/82 p-4"
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] bg-accent/12 text-accent">
-                            <Icon size={15} />
-                          </div>
-                          <div className="min-w-0">
-                            <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/46">
-                              {step.label}
-                            </div>
-                            <p className="mt-2 text-[13px] leading-6 text-ink/62">
-                              {step.detail}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen overflow-hidden bg-[#f7f0e6] text-ink">
-      <RedirectToSignIn
-        forceRedirectUrl={redirectUrl}
-        fallbackRedirectUrl={redirectUrl}
-      />
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute left-[10%] top-[14%] h-56 w-56 rounded-full bg-accent/12 blur-[92px]" />
-        <div className="absolute bottom-[8%] right-[10%] h-72 w-72 rounded-full bg-[#dac8b8]/36 blur-[110px]" />
-      </div>
-      <div className="relative flex min-h-screen items-center justify-center px-5 py-14 sm:px-8">
-        <div className="relative w-full max-w-[1040px] overflow-hidden rounded-[34px] border border-black/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,242,235,0.96))] shadow-[0_40px_120px_-64px_rgba(0,0,0,0.38)]">
-          <div className="grid gap-8 px-6 py-7 sm:px-8 lg:grid-cols-[minmax(0,1.1fr)_320px] lg:px-10 lg:py-10">
-            <div className="space-y-6">
-              <div className="inline-flex items-center gap-2 rounded-full border border-accent/12 bg-accent/8 px-3 py-1.5">
-                <Lock size={12} className="text-accent" />
-                <span className="text-[10px] font-mono font-semibold uppercase tracking-[0.18em] text-accent">
-                  Secure sign-in
-                </span>
-              </div>
-              <div className="space-y-4">
-                <h1 className="max-w-[14ch] font-serif text-[2.6rem] leading-[0.94] tracking-[-0.05em] text-ink sm:text-[3.55rem]">
-                  {title}
-                </h1>
-                <p className="max-w-[36rem] text-[1rem] leading-[1.85] text-ink/64">
-                  {body}
-                </p>
-              </div>
-              <div className="rounded-[24px] border border-black/8 bg-white/72 p-5 shadow-[0_24px_60px_-48px_rgba(0,0,0,0.34)]">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-[16px] bg-accent/12 text-accent">
-                    <LoaderCircle size={18} className="animate-spin" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/48">
-                      Redirect in progress
-                    </div>
-                    <div className="mt-1 text-[1rem] font-medium text-ink">
-                      Clerk should take over in just a moment.
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-black/6">
-                  <div className="h-full w-2/3 rounded-full bg-accent animate-pulse" />
-                </div>
-              </div>
-            </div>
-            <div className="rounded-[28px] border border-black/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.86),rgba(247,240,233,0.92))] p-5 shadow-[0_30px_80px_-62px_rgba(0,0,0,0.4)]">
-              <div className="space-y-3">
-                <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/46">
-                  What happens next
-                </div>
-                {stepCopy.map((step) => {
-                  const Icon = step.icon;
-                  return (
-                    <div
-                      key={step.label}
-                      className="rounded-[20px] border border-black/8 bg-white/82 p-4"
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] bg-accent/12 text-accent">
-                          <Icon size={15} />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/46">
-                            {step.label}
-                          </div>
-                          <p className="mt-2 text-[13px] leading-6 text-ink/62">
-                            {step.detail}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function formatLandingQuota(limit: number | null, unit: "chars" | "seconds") {
   if (limit == null) {
@@ -2927,12 +2703,6 @@ export function App({ initialDocument }: AppProps) {
     [document, selectedPage],
   );
   const managedAccess = useLineaAccessSnapshot();
-  const shouldRedirectToSignIn =
-    !managedAccess.loading &&
-    managedAccess.snapshot.enabled &&
-    managedAccess.snapshot.clerkConfigured &&
-    Boolean(getClerkPublishableKey()) &&
-    managedAccess.snapshot.access.status === "signed-out";
 
   const voice = useVoiceConsole({
     pages: document?.pages ?? [],
@@ -3213,10 +2983,6 @@ export function App({ initialDocument }: AppProps) {
         ) : null}
       </div>
     );
-  }
-
-  if (shouldRedirectToSignIn) {
-    return <ManagedAuthRedirect />;
   }
 
   /* ── no document ── */
