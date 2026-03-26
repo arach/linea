@@ -1993,6 +1993,7 @@ function CommandBar({
   clipCurrentWord,
   clipTotalWords,
   onSeekClip,
+  granularReadControlsEnabled,
 }: {
   document: ReaderDocument;
   page: ReaderPage;
@@ -2021,6 +2022,7 @@ function CommandBar({
   clipCurrentWord: number;
   clipTotalWords: number;
   onSeekClip: (progress: number) => void;
+  granularReadControlsEnabled: boolean;
 }) {
   const wordCount = selectedParagraph
     ? selectedParagraph.text.split(/\s+/).filter(Boolean).length
@@ -2104,11 +2106,11 @@ function CommandBar({
             </>
           ) : (
             <>
-              {hasSelection ? (
+              {granularReadControlsEnabled && hasSelection ? (
                 <button type="button" className="linea-btn-secondary linea-btn-icon" onClick={onReadSelection}>
                   <Play size={14} /> Read selection
                 </button>
-              ) : hasParagraphSelected ? (
+              ) : granularReadControlsEnabled && hasParagraphSelected ? (
                 <button type="button" className="linea-btn-secondary linea-btn-icon" onClick={onPlayParagraph}>
                   <Play size={14} /> Read from here
                 </button>
@@ -2649,6 +2651,7 @@ function ReaderPanel({
   onReadSelection,
   onRunOcr,
   ocrStatus,
+  granularReadControlsEnabled,
 }: {
   document: ReaderDocument;
   page: ReaderPage;
@@ -2674,6 +2677,7 @@ function ReaderPanel({
     state: "idle" | "probing" | "running" | "completed" | "empty" | "failed";
     message?: string;
   } | null;
+  granularReadControlsEnabled: boolean;
 }) {
   const articleRef = useRef<HTMLElement | null>(null);
   const font = readerFonts[settings.font];
@@ -2920,7 +2924,7 @@ function ReaderPanel({
         </div>
       )}
 
-      {selectionRect && createPortal(
+      {granularReadControlsEnabled && selectionRect && createPortal(
         <div
           className="linea-selection-popover"
           style={{
@@ -3012,6 +3016,8 @@ export function App({ initialDocument }: AppProps) {
     document?.fileName.toLowerCase().includes("attention is all you need"),
   );
   const allowPublicDemoVoicePlayback = isDemoRoute && isAttentionDemoDocument;
+  const granularDemoVoiceControlsEnabled =
+    !(allowPublicDemoVoicePlayback && managedAccess.snapshot.access.status === "signed-out");
   const shouldRedirectToSignIn =
     !managedAccess.loading &&
     authGateEnabled &&
@@ -3519,6 +3525,7 @@ export function App({ initialDocument }: AppProps) {
                 clipCurrentWord={voice.playbackWindow.currentWord}
                 clipTotalWords={voice.playbackWindow.totalWords}
                 onSeekClip={voice.seekPlayback}
+                granularReadControlsEnabled={granularDemoVoiceControlsEnabled}
               />
               <ReaderPanel
                 document={document}
@@ -3542,6 +3549,7 @@ export function App({ initialDocument }: AppProps) {
                 onReadSelection={handleReadSelection}
                 onRunOcr={() => void runOcrForPage(currentPage.pageNumber, true)}
                 ocrStatus={ocrByPage[currentPage.pageNumber] ?? null}
+                granularReadControlsEnabled={granularDemoVoiceControlsEnabled}
               />
             </>
           )}
