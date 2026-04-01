@@ -36,10 +36,13 @@ const EMAIL_SINGLE_RE = /[\w.-]+@[\w.-]+\.\w{2,}/;
 const AFFILIATION_RE = /\b(university|institute|department|faculty|school of|college of|laboratory|lab)\b/i;
 const AUTHOR_LIST_RE = /^[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}(?:\s*[,&]\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}){1,}/;
 const NUMBERED_REF_RE = /^\[?\d{1,3}\]?\s+[A-Z][a-z]+/;
+const TITLE_AUTHOR_RE = /^[A-Z][\w-]*(?:\s+[A-Z][\w-]*){2,}(?:\s+[∗*†‡])?$/;
 const ARXIV_RE = /\barxiv[:\s]?\d{4}\.\d{4,5}(?:v\d+)?\b/gi;
 const DOI_RE = /\b(?:doi[:\s]?\S+|https?:\/\/doi\.org\/\S+)/gi;
 const DOI_TEST_RE = /\b(?:doi|https?:\/\/doi\.org)\b/i;
 const COPYRIGHT_RE = /\b(?:copyright|©|all rights reserved|creative commons|license|CC BY)\b/i;
+const PERMISSION_NOTICE_RE = /\bpermission to reproduce\b|\bjournalistic or scholarly works\b/i;
+const CONTRIBUTION_NOTE_RE = /\b(?:Equal contribution|Listing order is random)\b/i;
 const TOC_RE = /^(?:table of contents|contents)\b/i;
 const TOC_ENTRY_RE = /^[\d.]+\s+[A-Z].*\d{1,3}$/;
 const FOOTNOTE_RE = /^\d{1,2}\s+(?:[A-Z]|https?:\/\/)/;
@@ -162,6 +165,14 @@ export function classifyParagraph(
     return { skip: true, reason: "boilerplate", confidence: 0.85, spans: [] };
   }
 
+  if (PERMISSION_NOTICE_RE.test(trimmed) && wordCount < 50) {
+    return { skip: true, reason: "boilerplate", confidence: 0.95, spans: [] };
+  }
+
+  if (context?.pageNumber === 1 && CONTRIBUTION_NOTE_RE.test(trimmed)) {
+    return { skip: true, reason: "footnote", confidence: 0.94, spans: [] };
+  }
+
   // Table of contents
   if (TOC_RE.test(trimmed)) {
     return { skip: true, reason: "toc", confidence: 0.9, spans: [] };
@@ -205,6 +216,24 @@ export function classifyParagraph(
     return { skip: true, reason: "authors", confidence: 0.8, spans: [] };
   }
 
+  if (
+    context?.pageNumber === 1 &&
+    context.index <= 3 &&
+    TITLE_AUTHOR_RE.test(trimmed) &&
+    /[∗*†‡]/.test(trimmed) &&
+    wordCount < 18
+  ) {
+    return { skip: true, reason: "authors", confidence: 0.82, spans: [] };
+  }
+
+  if (
+    context?.pageNumber === 1 &&
+    wordCount < 35 &&
+    /(?:work performed while|conference on neural information processing systems)/i.test(trimmed)
+  ) {
+    return { skip: true, reason: "metadata", confidence: 0.88, spans: [] };
+  }
+
   // If inline spans cover >80% of the text, skip the whole paragraph
   if (spans.length > 0 && spanCoverage(spans, trimmed.length) > 0.8) {
     const primaryReason = spans[0].reason;
@@ -223,8 +252,27 @@ export function classifyPage(
   pageNumber: number,
 ): ParagraphClassification[] {
   let isAfterReferenceHeading = false;
+  let isAfterContributionNote = false;
 
   return paragraphs.map((p, index) => {
+    if (pageNumber === 1 && isAfterContributionNote) {
+      const trimmed = p.text.trim();
+      const result: ParagraphClassification = {
+        skip: true,
+        reason: /(?:work performed while|conference on neural information processing systems|arxiv)/i.test(trimmed)
+          ? "metadata"
+          : "footnote",
+        confidence: 0.9,
+        spans: [],
+      };
+
+      if (REFERENCE_HEADING_RE.test(trimmed)) {
+        isAfterContributionNote = false;
+      }
+
+      return result;
+    }
+
     const result = classifyParagraph(p.text, {
       pageNumber,
       index,
@@ -234,6 +282,10 @@ export function classifyPage(
 
     if (REFERENCE_HEADING_RE.test(p.text.trim())) {
       isAfterReferenceHeading = true;
+    }
+
+    if (pageNumber === 1 && CONTRIBUTION_NOTE_RE.test(p.text.trim())) {
+      isAfterContributionNote = true;
     }
 
     return result;

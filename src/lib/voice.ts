@@ -78,6 +78,11 @@ type VoicePlaybackWindow = {
   totalWords: number;
 };
 
+type VoicePlaybackTokenRange = {
+  start: number;
+  end: number;
+};
+
 type PlaybackParagraphState = "completed" | "current" | "upcoming";
 
 /**
@@ -242,6 +247,7 @@ export function useVoiceConsole({
   const [isListening, setIsListening] = useState(false);
   const [lastCommand, setLastCommand] = useState("");
   const [spokenCharacterIndex, setSpokenCharacterIndex] = useState(0);
+  const [spokenTokenRange, setSpokenTokenRange] = useState<VoicePlaybackTokenRange | null>(null);
   const [speechSession, setSpeechSession] = useState<SpeechSession | null>(null);
   const [voiceError, setVoiceError] = useState("");
   const [loadingVoices, setLoadingVoices] = useState(false);
@@ -300,6 +306,16 @@ export function useVoiceConsole({
       ) ?? pageForSession.paragraphs[0] ?? null
     );
   }, [pages, selectedPage, selectedPageData, speechSession, spokenCharacterIndex]);
+  const activeTokenRange = useMemo(() => {
+    if (!speechSession || !spokenTokenRange) {
+      return null;
+    }
+
+    return {
+      start: spokenTokenRange.start + (speechSession.charOffsetBase ?? 0),
+      end: spokenTokenRange.end + (speechSession.charOffsetBase ?? 0),
+    };
+  }, [speechSession, spokenTokenRange]);
   const playbackRange = useMemo(() => {
     const empty = {
       pageNumber: null,
@@ -511,6 +527,7 @@ export function useVoiceConsole({
     setIsSpeaking(false);
     setIsPaused(false);
     setSpokenCharacterIndex(0);
+    setSpokenTokenRange(null);
     setSpeechSession(null);
     setPlaybackWindow((current) => ({
       ...current,
@@ -701,6 +718,7 @@ export function useVoiceConsole({
         : `${window.location.origin}${response.audioUrl}`;
       const shouldFetchAlignment =
         Boolean(session.clipCharRange) ||
+        preferAlignedPageClipPlayback ||
         Boolean(runtime?.capabilities.features?.alignment) ||
         capabilities.alignment;
       const alignmentPromise = shouldFetchAlignment
@@ -824,9 +842,18 @@ export function useVoiceConsole({
             activeTracker.applyAlignment?.(alignment.words);
           });
         }
+        const initialSnapshot = tracker.updateFromClock(audio.currentTime * 1000);
+        setSpokenCharacterIndex(initialSnapshot?.currentCharIndex ?? 0);
+        setSpokenTokenRange(
+          initialSnapshot?.token
+            ? {
+                start: initialSnapshot.token.start,
+                end: initialSnapshot.token.end,
+              }
+            : null,
+        );
         setIsSpeaking(true);
         setIsPaused(false);
-        setSpokenCharacterIndex(0);
         setSpeechSession(session);
         setLastCommand(`${selectedProviderMeta.label}: ${session.label}`);
         onSelectPage(session.pageNumber);
@@ -875,6 +902,14 @@ export function useVoiceConsole({
         const snapshot = trackerRef.current?.updateFromClock(audio.currentTime * 1000);
         const nextCharIndex = snapshot?.currentCharIndex ?? 0;
         setSpokenCharacterIndex(nextCharIndex);
+        setSpokenTokenRange(
+          snapshot?.token
+            ? {
+                start: snapshot.token.start,
+                end: snapshot.token.end,
+              }
+            : null,
+        );
         const durationMs = clipTiming
           ? Math.max(1, clipTiming.endMs - clipTiming.startMs)
           : Number.isFinite(audio.duration) ? Math.max(0, audio.duration * 1000) : 0;
@@ -1202,6 +1237,10 @@ export function useVoiceConsole({
     );
 
     setSpokenCharacterIndex(nextCharIndex);
+    setSpokenTokenRange({
+      start: token.start,
+      end: token.end,
+    });
     setPlaybackWindow((current) => ({
       ...current,
       elapsedMs: durationMs * nextProgress,
@@ -1236,6 +1275,14 @@ export function useVoiceConsole({
     );
 
     setSpokenCharacterIndex(nextCharIndex);
+    setSpokenTokenRange(
+      snapshot?.token
+        ? {
+            start: snapshot.token.start,
+            end: snapshot.token.end,
+          }
+        : null,
+    );
     setPlaybackWindow((current) => ({
       ...current,
       elapsedMs: nextTimeMs,
@@ -1349,6 +1396,7 @@ export function useVoiceConsole({
     playbackWindow,
     localRuntime,
     spokenCharacterIndex,
+    activeTokenRange,
     activeCharacterIndex: spokenCharacterIndex + (speechSession?.charOffsetBase ?? 0),
     activeParagraphId: activeParagraph?.id ?? null,
     activePageNumber: speechSession?.pageNumber ?? null,

@@ -1,14 +1,22 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type Theme = "light" | "dark";
+export type Theme = "light" | "dark" | "tactical" | "soft" | "big-read";
 
 const STORAGE_KEY = "linea:theme";
+const URL_THEMES = new Set<Theme>(["tactical", "soft", "big-read"]);
 
-function getSystemTheme(): Theme {
+function getSystemTheme(): "light" | "dark" {
   if (typeof window === "undefined") return "light";
   return window.matchMedia("(prefers-color-scheme: dark)").matches
     ? "dark"
     : "light";
+}
+
+function getUrlTheme(): Theme | null {
+  if (typeof window === "undefined") return null;
+  const param = new URLSearchParams(window.location.search).get("theme");
+  if (param && URL_THEMES.has(param as Theme)) return param as Theme;
+  return null;
 }
 
 function applyTheme(theme: Theme) {
@@ -19,6 +27,13 @@ export function useTheme() {
   const [theme, setThemeState] = useState<Theme>("light");
 
   useEffect(() => {
+    const urlTheme = getUrlTheme();
+    if (urlTheme) {
+      setThemeState(urlTheme);
+      applyTheme(urlTheme);
+      return;
+    }
+
     const stored = localStorage.getItem(STORAGE_KEY);
     const nextTheme =
       stored === "light" || stored === "dark"

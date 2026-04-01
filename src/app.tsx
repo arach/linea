@@ -42,6 +42,7 @@ import type {
   ReaderDocument,
   ReaderPage,
   ReaderParagraph,
+  ReaderRect,
 } from "@/lib/pdf";
 import { buildReaderPageFromText, getPdfModule, loadReaderDocument } from "@/lib/pdf";
 import {
@@ -78,6 +79,12 @@ import { formatCount, formatMinutes } from "@/lib/utils";
 type AppProps = {
   initialDocument: ReaderDocument | null;
 };
+
+type ReaderLayoutMode = "text" | "split";
+
+const SIDEBAR_WIDTH_MIN = 220;
+const SIDEBAR_WIDTH_MAX = 420;
+const DEFAULT_SIDEBAR_WIDTH = 280;
 
 function currentUrl() {
   return typeof window !== "undefined" ? window.location.href : "/";
@@ -142,6 +149,20 @@ function getDemoSampleFile(search: string) {
   }
 
   return "attention-is-all-you-need.pdf" as const;
+}
+
+function getVoiceBlockedLabel(reason: string) {
+  const normalized = reason.toLowerCase();
+
+  if (normalized.includes("sign in")) {
+    return "Sign in for voice";
+  }
+
+  if (normalized.includes("api key")) {
+    return "Add key for voice";
+  }
+
+  return "Voice unavailable";
 }
 
 const FEATURED_DEMO_OPTIONS = [
@@ -950,11 +971,17 @@ function PdfInlinePreview({
   doc,
   pageNumber,
   imageDataUrl,
+  pageWidth,
+  pageHeight,
+  overlayRects,
   scale = 1.35,
 }: {
   doc: PdfDocumentProxy | null;
   pageNumber: number;
   imageDataUrl: string | null;
+  pageWidth: number;
+  pageHeight: number;
+  overlayRects?: Array<{ rect: ReaderRect; tone: "active" | "selected" }>;
   scale?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -981,30 +1008,48 @@ function PdfInlinePreview({
         overflow: "hidden",
       }}
     >
-      {imageDataUrl ? (
-        <img
-          src={imageDataUrl}
-          alt={`Page ${pageNumber}`}
-          style={{
-            width: "100%",
-            height: "auto",
-            display: "block",
-            borderRadius: 16,
-            background: "#fff",
-          }}
-        />
-      ) : (
-        <canvas
-          ref={canvasRef}
-          style={{
-            width: "100%",
-            height: "auto",
-            display: "block",
-            borderRadius: 16,
-            background: "#fff",
-          }}
-        />
-      )}
+      <div className="linea-pdf-inline-surface">
+        {imageDataUrl ? (
+          <img
+            src={imageDataUrl}
+            alt={`Page ${pageNumber}`}
+            style={{
+              width: "100%",
+              height: "auto",
+              display: "block",
+              borderRadius: 16,
+              background: "#fff",
+            }}
+          />
+        ) : (
+          <canvas
+            ref={canvasRef}
+            style={{
+              width: "100%",
+              height: "auto",
+              display: "block",
+              borderRadius: 16,
+              background: "#fff",
+            }}
+          />
+        )}
+        {overlayRects && overlayRects.length > 0 ? (
+          <div className="linea-pdf-overlay-layer" aria-hidden="true">
+            {overlayRects.map(({ rect, tone }, index) => (
+              <div
+                key={`${tone}-${pageNumber}-${index}-${rect.x}-${rect.y}`}
+                className={`linea-pdf-overlay-rect ${tone}`}
+                style={{
+                  left: `calc(${(rect.x / Math.max(pageWidth, 1)) * 100}% - 2px)`,
+                  top: `calc(${(rect.y / Math.max(pageHeight, 1)) * 100}% - 2px)`,
+                  width: `calc(${(rect.width / Math.max(pageWidth, 1)) * 100}% + 4px)`,
+                  height: `calc(${(rect.height / Math.max(pageHeight, 1)) * 100}% + 4px)`,
+                }}
+              />
+            ))}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -1015,12 +1060,18 @@ function PdfExpandOverlay({
   doc,
   pageNumber,
   totalPages,
+  onPlayPage,
+  playPageEnabled,
+  playPageLabel,
   onClose,
   onNavigate,
 }: {
   doc: PdfDocumentProxy;
   pageNumber: number;
   totalPages: number;
+  onPlayPage: () => void;
+  playPageEnabled: boolean;
+  playPageLabel: string;
   onClose: () => void;
   onNavigate: (page: number) => void;
 }) {
@@ -1060,6 +1111,16 @@ function PdfExpandOverlay({
             <span className="linea-panel-label">
               Page {pageNumber} of {totalPages}
             </span>
+            <button
+              type="button"
+              className="linea-btn-secondary linea-btn-icon"
+              onClick={onPlayPage}
+              disabled={!playPageEnabled}
+              title={!playPageEnabled ? playPageLabel : undefined}
+            >
+              <Play size={14} />
+              {playPageEnabled ? "Read page" : playPageLabel}
+            </button>
             <button
               type="button"
               className="linea-btn-secondary linea-btn-icon"
@@ -1289,12 +1350,17 @@ function renderDimSpans(paragraph: ReaderParagraph) {
 
 function renderParagraphText(
   paragraph: ReaderParagraph,
-  options?: { highlightEnd?: number },
+  options?: { highlightRange?: { start: number; end: number } | null },
 ) {
-  const highlightEnd = Math.max(0, Math.min(paragraph.text.length, options?.highlightEnd ?? 0));
+  const highlightRange = options?.highlightRange
+    ? {
+        start: Math.max(0, Math.min(paragraph.text.length, options.highlightRange.start)),
+        end: Math.max(0, Math.min(paragraph.text.length, options.highlightRange.end)),
+      }
+    : null;
   const dimSpans = paragraph.dimSpans ?? [];
 
-  if (dimSpans.length === 0 && highlightEnd === 0) {
+  if (dimSpans.length === 0 && !highlightRange) {
     return (
       <span className="linea-text-fragment" data-char-offset={0}>
         {paragraph.text}
@@ -1302,7 +1368,11 @@ function renderParagraphText(
     );
   }
 
-  const breakpoints = new Set<number>([0, paragraph.text.length, highlightEnd]);
+  const breakpoints = new Set<number>([0, paragraph.text.length]);
+  if (highlightRange) {
+    breakpoints.add(highlightRange.start);
+    breakpoints.add(highlightRange.end);
+  }
   for (const span of dimSpans) {
     breakpoints.add(span.start);
     breakpoints.add(span.end);
@@ -1320,7 +1390,12 @@ function renderParagraphText(
 
     const text = paragraph.text.slice(start, end);
     const isDimmed = dimSpans.some((span) => start < span.end && end > span.start);
-    const isHighlighted = highlightEnd > 0 && end <= highlightEnd;
+    const isHighlighted = Boolean(
+      highlightRange &&
+      start >= highlightRange.start &&
+      end <= highlightRange.end &&
+      highlightRange.end > highlightRange.start,
+    );
     const className = [
       "linea-text-fragment",
       isDimmed ? "linea-dim-span" : "",
@@ -1365,6 +1440,9 @@ function ContextPanel({
   selectedParagraph,
   selectedParagraphId,
   selectedPage,
+  onPlayPage,
+  playPageEnabled,
+  playPageLabel,
   onSelectParagraph,
 }: {
   document: ReaderDocument;
@@ -1374,6 +1452,9 @@ function ContextPanel({
   selectedParagraph: ReaderParagraph | null;
   selectedParagraphId: string | null;
   selectedPage: number;
+  onPlayPage: () => void;
+  playPageEnabled: boolean;
+  playPageLabel: string;
   onSelectParagraph: (id: string | null) => void;
 }) {
   const activeParagraph = useMemo(
@@ -1400,6 +1481,16 @@ function ContextPanel({
       <div className="linea-panel-section">
         <div className="context-page-header">
           <span className="linea-panel-label">Page {page.pageNumber} / {document.pageCount}</span>
+          <button
+            type="button"
+            className="linea-btn-secondary linea-btn-icon linea-page-action"
+            onClick={onPlayPage}
+            disabled={!playPageEnabled}
+            title={!playPageEnabled ? playPageLabel : undefined}
+          >
+            <Play size={12} />
+            {playPageEnabled ? "Read page" : playPageLabel}
+          </button>
         </div>
         <div className="context-stats">
           <div>
@@ -1655,6 +1746,8 @@ function Header({
   onGoHome,
   onUploadClick,
   onLoadSample,
+  readerLayoutMode,
+  onReaderLayoutModeChange,
   loadingSample,
   theme,
   toggleTheme,
@@ -1670,6 +1763,8 @@ function Header({
   onGoHome: () => void;
   onUploadClick: () => void;
   onLoadSample: (file: string, label: string, options?: { localPath?: string }) => void;
+  readerLayoutMode: ReaderLayoutMode;
+  onReaderLayoutModeChange: (mode: ReaderLayoutMode) => void;
   loadingSample: string | null;
   theme: string;
   toggleTheme: () => void;
@@ -1759,7 +1854,23 @@ function Header({
                     onChange={(e) => update("lineHeight", Number(e.target.value))}
                     className="linea-slider"
                   />
-                </HeaderPopover>
+                  </HeaderPopover>
+              </div>
+              <div className="linea-layout-toggle" aria-label="Reader view mode">
+                <button
+                  type="button"
+                  className={`linea-chip linea-layout-chip${readerLayoutMode === "text" ? " active" : ""}`}
+                  onClick={() => onReaderLayoutModeChange("text")}
+                >
+                  Text
+                </button>
+                <button
+                  type="button"
+                  className={`linea-chip linea-layout-chip${readerLayoutMode === "split" ? " active" : ""}`}
+                  onClick={() => onReaderLayoutModeChange("split")}
+                >
+                  Split
+                </button>
               </div>
               <div style={{ position: "relative" }}>
                 <button
@@ -2043,9 +2154,11 @@ function CommandBar({
   clipCurrentWord,
   clipTotalWords,
   onSeekClip,
+  pagePlaybackEnabled,
   paragraphPlaybackEnabled,
   selectionPlaybackEnabled,
   selectionPlaybackLabel,
+  playbackBlockedLabel,
 }: {
   document: ReaderDocument;
   page: ReaderPage;
@@ -2074,9 +2187,11 @@ function CommandBar({
   clipCurrentWord: number;
   clipTotalWords: number;
   onSeekClip: (progress: number) => void;
+  pagePlaybackEnabled: boolean;
   paragraphPlaybackEnabled: boolean;
   selectionPlaybackEnabled: boolean;
   selectionPlaybackLabel: string;
+  playbackBlockedLabel: string;
 }) {
   const wordCount = selectedParagraph
     ? selectedParagraph.text.split(/\s+/).filter(Boolean).length
@@ -2169,8 +2284,14 @@ function CommandBar({
                   <Play size={14} /> Play paragraph
                 </button>
               ) : (
-                <button type="button" className="linea-btn-secondary linea-btn-icon" onClick={onPlay}>
-                  <Play size={14} /> Play page
+                <button
+                  type="button"
+                  className="linea-btn-secondary linea-btn-icon"
+                  onClick={onPlay}
+                  disabled={!pagePlaybackEnabled}
+                  title={!pagePlaybackEnabled ? playbackBlockedLabel : undefined}
+                >
+                  <Play size={14} /> {pagePlaybackEnabled ? "Play page" : playbackBlockedLabel}
                 </button>
               )}
             </>
@@ -2689,9 +2810,10 @@ function ReaderPanel({
   pdfDoc,
   pageImageDataUrl,
   selectedPage,
+  readerLayoutMode,
   settings,
   activeParagraphId,
-  activeCharacterIndex,
+  activeTokenRange,
   activePageNumber,
   playbackRangePageNumber,
   playbackRangeStartParagraphId,
@@ -2703,20 +2825,24 @@ function ReaderPanel({
   onSelectParagraph,
   onSelectText,
   onSeekToChar,
+  onPlayPage,
   onReadSelection,
   onRunOcr,
   ocrStatus,
   selectionPlaybackEnabled,
   selectionPlaybackLabel,
+  playPageEnabled,
+  playPageLabel,
 }: {
   document: ReaderDocument;
   page: ReaderPage;
   pdfDoc: PdfDocumentProxy | null;
   pageImageDataUrl: string | null;
   selectedPage: number;
+  readerLayoutMode: ReaderLayoutMode;
   settings: ReaderSettings;
   activeParagraphId: string | null;
-  activeCharacterIndex: number;
+  activeTokenRange: { start: number; end: number } | null;
   activePageNumber: number | null;
   playbackRangePageNumber: number | null;
   playbackRangeStartParagraphId: string | null;
@@ -2728,6 +2854,7 @@ function ReaderPanel({
   onSelectParagraph: (paragraphId: string | null) => void;
   onSelectText: (selection: ReaderTextSelection | null) => void;
   onSeekToChar: (charIndex: number) => void;
+  onPlayPage: () => void;
   onReadSelection: () => void;
   onRunOcr: () => void;
   ocrStatus: {
@@ -2736,12 +2863,15 @@ function ReaderPanel({
   } | null;
   selectionPlaybackEnabled: boolean;
   selectionPlaybackLabel: string;
+  playPageEnabled: boolean;
+  playPageLabel: string;
 }) {
   const articleRef = useRef<HTMLElement | null>(null);
   const font = readerFonts[settings.font];
   const readerTheme = readerThemes[settings.theme];
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
   const isPlaybackRangeVisible = playbackRangePageNumber === page.pageNumber;
+  const showSplitView = readerLayoutMode === "split" && Boolean(pdfDoc);
   const shouldShowPdfSource =
     !page.hasText ||
     ocrStatus?.state === "running" ||
@@ -2866,131 +2996,194 @@ function ReaderPanel({
     return () => window.document.removeEventListener("selectionchange", onSelChange);
   }, []);
 
+  const sourceOverlayRects = useMemo(() => {
+    const activeParagraph =
+      isAudioActive && activePageNumber === page.pageNumber
+        ? page.paragraphs.find((paragraph) => paragraph.id === activeParagraphId) ?? null
+        : null;
+    const selectedParagraph =
+      !activeParagraph && selectedParagraphId
+        ? page.paragraphs.find((paragraph) => paragraph.id === selectedParagraphId) ?? null
+        : null;
+    const target = activeParagraph ?? selectedParagraph;
+    if (!target?.boxes?.length) {
+      return [];
+    }
+
+    const tone = activeParagraph ? "active" : "selected";
+    return target.boxes.map((rect) => ({ rect, tone })) satisfies Array<{
+      rect: ReaderRect;
+      tone: "active" | "selected";
+    }>;
+  }, [
+    activePageNumber,
+    activeParagraphId,
+    isAudioActive,
+    page.pageNumber,
+    page.paragraphs,
+    selectedParagraphId,
+  ]);
+
+  const sourcePane = (
+    <div className={`linea-reader-source${showSplitView ? " split" : ""}`}>
+      <div className="linea-reader-source-header">
+        <div>
+          <span className="linea-panel-label">Source page</span>
+          <div className="linea-reader-source-copy">
+            Rendered locally from the original PDF
+          </div>
+        </div>
+        <button
+          type="button"
+          className="linea-btn-secondary linea-btn-icon linea-page-action"
+          onClick={onPlayPage}
+          disabled={!playPageEnabled}
+          title={!playPageEnabled ? playPageLabel : undefined}
+        >
+          <Play size={12} />
+          {playPageEnabled ? "Read page" : playPageLabel}
+        </button>
+      </div>
+      <PdfInlinePreview
+        doc={pdfDoc}
+        pageNumber={page.pageNumber}
+        imageDataUrl={pageImageDataUrl}
+        pageWidth={page.width}
+        pageHeight={page.height}
+        overlayRects={sourceOverlayRects}
+        scale={showSplitView ? 1.7 : 1.35}
+      />
+    </div>
+  );
+
+  const textPane = page.hasText ? (
+    <div
+      ref={articleRef as React.RefObject<HTMLDivElement>}
+      onMouseUp={handleSelection}
+      onKeyUp={handleSelection}
+      className="linea-reader-text-pane"
+      style={{
+        fontSize: `${settings.fontSize}px`,
+        lineHeight: settings.lineHeight,
+        fontFamily:
+          font.className === "font-serif"
+            ? "var(--font-serif)"
+            : font.className === "font-mono"
+              ? "var(--font-mono)"
+              : "var(--font-sans)",
+      }}
+    >
+      {page.paragraphs
+        .filter((p) => p.text.trim() !== page.title.trim())
+        .map((paragraph) => {
+          const playbackState = isPlaybackRangeVisible
+            ? playbackParagraphStateById[paragraph.id] ?? null
+            : null;
+          const isActivePlaybackParagraph =
+            isAudioActive &&
+            activePageNumber === page.pageNumber &&
+            activeParagraphId === paragraph.id;
+          const activeHighlightRange =
+            isActivePlaybackParagraph &&
+            activeTokenRange &&
+            activeTokenRange.end > paragraph.start &&
+            activeTokenRange.start < paragraph.end
+              ? {
+                  start: Math.max(0, activeTokenRange.start - paragraph.start),
+                  end: Math.min(paragraph.text.length, activeTokenRange.end - paragraph.start),
+                }
+              : null;
+
+          return (
+            <div
+              key={paragraph.id}
+              role="button"
+              tabIndex={0}
+              data-paragraph-id={paragraph.id}
+              onClick={(e) => {
+                const sel = window.getSelection()?.toString().trim();
+                if (sel) return;
+
+                if (isAudioActive && activePageNumber === page.pageNumber) {
+                  const target = e.target as HTMLElement;
+                  const charOffset = target.dataset.charOffset;
+                  if (charOffset != null) {
+                    onSeekToChar(paragraph.start + Number(charOffset));
+                  } else {
+                    onSeekToChar(paragraph.start);
+                  }
+                  return;
+                }
+
+                onSelectParagraph(selectedParagraphId === paragraph.id ? null : paragraph.id);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onSelectParagraph(selectedParagraphId === paragraph.id ? null : paragraph.id);
+                }
+              }}
+              className={`linea-paragraph${isActivePlaybackParagraph ? " active" : ""}${selectedParagraphId === paragraph.id ? " positioned" : ""}${paragraph.skip ? " skipped" : ""}${playbackState ? ` playback-${playbackState}` : ""}${playbackRangeStartParagraphId === paragraph.id ? " playback-range-start" : ""}${playbackRangeEndParagraphId === paragraph.id ? " playback-range-end" : ""}${isActivePlaybackParagraph ? ` ${readerTheme.activeParagraphClass}` : ""}`}
+            >
+              {playbackState ? (
+                <span
+                  aria-hidden="true"
+                  className={`linea-playback-rail ${playbackState}${playbackRangeStartParagraphId === paragraph.id ? " range-start" : ""}${playbackRangeEndParagraphId === paragraph.id ? " range-end" : ""}`}
+                />
+              ) : null}
+              <span className="linea-paragraph-text">
+                {renderParagraphText(paragraph, {
+                  highlightRange: activeHighlightRange,
+                })}
+              </span>
+            </div>
+          );
+        })}
+    </div>
+  ) : (
+    <div style={{ display: "grid", gap: 12, marginTop: showSplitView ? 0 : 20 }}>
+      <div className="linea-status">
+        {ocrStatus?.state === "probing"
+          ? "Checking Fabric Runner for OCR support..."
+          : ocrStatus?.state === "running"
+            ? "Extracting text with Fabric Runner..."
+            : ocrStatus?.state === "empty"
+              ? "OCR completed, but no readable text was recovered from this page."
+              : ocrStatus?.state === "failed"
+                ? ocrStatus.message ?? "OCR failed for this page."
+                : "No extractable text on this page. This usually means the page is image-based or needs OCR."}
+      </div>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <button
+          type="button"
+          className="linea-btn-secondary linea-btn-icon"
+          onClick={onRunOcr}
+          disabled={ocrStatus?.state === "probing" || ocrStatus?.state === "running"}
+        >
+          <ScanSearch size={14} />
+          {ocrStatus?.state === "failed" || ocrStatus?.state === "empty" ? "Retry OCR" : "Run OCR"}
+        </button>
+        <span className="linea-panel-label">
+          {document.source?.localPath
+            ? "Linea contacts local Fabric Runner only after you choose Run OCR"
+            : "OCR is currently available for local sample documents"}
+        </span>
+      </div>
+    </div>
+  );
+
   return (
     <article className={`linea-reader ${readerTheme.surfaceClass}`}>
-      {shouldShowPdfSource ? (
-        <div style={{ display: "grid", gap: 10, marginBottom: 20 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 12,
-              flexWrap: "wrap",
-            }}
-          >
-            <span className="linea-panel-label">Source page</span>
-            <span className="linea-panel-label">Rendered locally from the original PDF</span>
-          </div>
-          <PdfInlinePreview doc={pdfDoc} pageNumber={page.pageNumber} imageDataUrl={pageImageDataUrl} />
-        </div>
-      ) : null}
-      {page.hasText ? (
-        <div
-          ref={articleRef as React.RefObject<HTMLDivElement>}
-          onMouseUp={handleSelection}
-          onKeyUp={handleSelection}
-          style={{
-            fontSize: `${settings.fontSize}px`,
-            lineHeight: settings.lineHeight,
-            fontFamily:
-              font.className === "font-serif"
-                ? "var(--font-serif)"
-                : font.className === "font-mono"
-                  ? "var(--font-mono)"
-                  : "var(--font-sans)",
-          }}
-        >
-          {page.paragraphs
-            .filter((p) => p.text.trim() !== page.title.trim())
-            .map((paragraph) => {
-              const playbackState = isPlaybackRangeVisible
-                ? playbackParagraphStateById[paragraph.id] ?? null
-                : null;
-              const isActivePlaybackParagraph =
-                isAudioActive &&
-                activePageNumber === page.pageNumber &&
-                activeParagraphId === paragraph.id;
-              const activeHighlightEnd = isActivePlaybackParagraph
-                ? Math.max(0, Math.min(paragraph.text.length, activeCharacterIndex - paragraph.start))
-                : 0;
-
-              return (
-                <div
-                  key={paragraph.id}
-                  role="button"
-                  tabIndex={0}
-                  data-paragraph-id={paragraph.id}
-                  onClick={(e) => {
-                    const sel = window.getSelection()?.toString().trim();
-                    if (sel) return;
-
-                    if (isAudioActive && activePageNumber === page.pageNumber) {
-                      const target = e.target as HTMLElement;
-                      const charOffset = target.dataset.charOffset;
-                      if (charOffset != null) {
-                        onSeekToChar(paragraph.start + Number(charOffset));
-                      } else {
-                        onSeekToChar(paragraph.start);
-                      }
-                      return;
-                    }
-
-                    onSelectParagraph(selectedParagraphId === paragraph.id ? null : paragraph.id);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onSelectParagraph(selectedParagraphId === paragraph.id ? null : paragraph.id);
-                    }
-                  }}
-                  className={`linea-paragraph${isActivePlaybackParagraph ? " active" : ""}${selectedParagraphId === paragraph.id ? " positioned" : ""}${paragraph.skip ? " skipped" : ""}${playbackState ? ` playback-${playbackState}` : ""}${playbackRangeStartParagraphId === paragraph.id ? " playback-range-start" : ""}${playbackRangeEndParagraphId === paragraph.id ? " playback-range-end" : ""}${isActivePlaybackParagraph ? ` ${readerTheme.activeParagraphClass}` : ""}`}
-                >
-                  {playbackState ? (
-                    <span
-                      aria-hidden="true"
-                      className={`linea-playback-rail ${playbackState}${playbackRangeStartParagraphId === paragraph.id ? " range-start" : ""}${playbackRangeEndParagraphId === paragraph.id ? " range-end" : ""}`}
-                    />
-                  ) : null}
-                  <span className="linea-paragraph-text">
-                    {renderParagraphText(paragraph, {
-                      highlightEnd: activeHighlightEnd,
-                    })}
-                  </span>
-                </div>
-              );
-            })}
+      {showSplitView ? (
+        <div className="linea-reader-split">
+          {sourcePane}
+          {textPane}
         </div>
       ) : (
-        <div style={{ display: "grid", gap: 12, marginTop: 20 }}>
-          <div className="linea-status">
-            {ocrStatus?.state === "probing"
-              ? "Checking Fabric Runner for OCR support..."
-              : ocrStatus?.state === "running"
-                ? "Extracting text with Fabric Runner..."
-                : ocrStatus?.state === "empty"
-                  ? "OCR completed, but no readable text was recovered from this page."
-                  : ocrStatus?.state === "failed"
-                    ? ocrStatus.message ?? "OCR failed for this page."
-                    : "No extractable text on this page. This usually means the page is image-based or needs OCR."}
-          </div>
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <button
-              type="button"
-              className="linea-btn-secondary linea-btn-icon"
-              onClick={onRunOcr}
-              disabled={ocrStatus?.state === "probing" || ocrStatus?.state === "running"}
-            >
-              <ScanSearch size={14} />
-              {ocrStatus?.state === "failed" || ocrStatus?.state === "empty" ? "Retry OCR" : "Run OCR"}
-            </button>
-            <span className="linea-panel-label">
-              {document.source?.localPath
-                ? "Linea contacts local Fabric Runner only after you choose Run OCR"
-                : "OCR is currently available for local sample documents"}
-            </span>
-          </div>
-        </div>
+        <>
+          {shouldShowPdfSource ? sourcePane : null}
+          {textPane}
+        </>
       )}
 
       {selectionPlaybackEnabled && selectionRect && createPortal(
@@ -3056,6 +3249,8 @@ export function App({ initialDocument }: AppProps) {
   const [progress, setProgress] = useState<ExtractionProgress | null>(null);
   const [error, setError] = useState("");
   const [settings, setSettings] = useState<ReaderSettings>(defaultReaderSettings);
+  const [readerLayoutMode, setReaderLayoutMode] = useState<ReaderLayoutMode>("text");
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
   const [selectedPassage, setSelectedPassage] = useState<ReaderTextSelection | null>(null);
   const [selectedParagraphId, setSelectedParagraphId] = useState<string | null>(null);
   const [expandPage, setExpandPage] = useState<number | null>(null);
@@ -3087,9 +3282,6 @@ export function App({ initialDocument }: AppProps) {
   const allowPublicDemoVoicePlayback = isDemoRoute && isAttentionDemoDocument;
   const isAnonymousPublicDemo =
     allowPublicDemoVoicePlayback && managedAccess.snapshot.access.status === "signed-out";
-  const paragraphPlaybackEnabled = Boolean(document);
-  const selectionPlaybackEnabled = Boolean(document);
-  const selectionPlaybackLabel = isAnonymousPublicDemo ? "Play paragraph" : "Read selection";
   const shouldRedirectToSignIn =
     !managedAccess.loading &&
     authGateEnabled &&
@@ -3101,8 +3293,23 @@ export function App({ initialDocument }: AppProps) {
     selectedPage,
     onSelectPage: setSelectedPage,
     allowUnavailableProviderPlayback: allowPublicDemoVoicePlayback,
-    preferAlignedPageClipPlayback: isAnonymousPublicDemo,
+    preferAlignedPageClipPlayback: allowPublicDemoVoicePlayback,
   });
+  const hasDirectVoicePlayback = voice.providers.some((provider) => provider.available);
+  const pagePlaybackEnabled = Boolean(document) && (allowPublicDemoVoicePlayback || hasDirectVoicePlayback);
+  const paragraphPlaybackEnabled = pagePlaybackEnabled;
+  const selectionPlaybackEnabled = pagePlaybackEnabled;
+  const playbackBlockedReason = !pagePlaybackEnabled
+    ? isDemoRoute && managedAccess.snapshot.access.status === "signed-out"
+      ? "This sample does not include public cached voice yet. Sign in to use voice playback."
+      : managedAccess.snapshot.enabled && managedAccess.snapshot.access.status === "signed-out"
+        ? "Sign in to use managed voice and alignment."
+        : managedAccess.snapshot.enabled && !managedAccess.snapshot.localCredentialsEnabled
+          ? "Voice playback is unavailable for this account on this deployment."
+          : "Add an API key to enable voice playback."
+    : "";
+  const playbackBlockedLabel = getVoiceBlockedLabel(playbackBlockedReason);
+  const selectionPlaybackLabel = isAnonymousPublicDemo ? "Play paragraph" : "Read selection";
 
   const selectedParagraph = useMemo(
     () => currentPage?.paragraphs.find((paragraph) => paragraph.id === selectedParagraphId) ?? null,
@@ -3161,6 +3368,28 @@ export function App({ initialDocument }: AppProps) {
     if (typeof window === "undefined") return;
     window.localStorage.setItem("linea:reader-settings", JSON.stringify(settings));
   }, [settings]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const savedLayout = window.localStorage.getItem("linea:reader-layout-mode");
+    if (savedLayout === "text" || savedLayout === "split") {
+      setReaderLayoutMode(savedLayout);
+    }
+    const savedSidebarWidth = Number(window.localStorage.getItem("linea:sidebar-width"));
+    if (Number.isFinite(savedSidebarWidth) && savedSidebarWidth >= SIDEBAR_WIDTH_MIN) {
+      setSidebarWidth(Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, savedSidebarWidth)));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("linea:reader-layout-mode", readerLayoutMode);
+  }, [readerLayoutMode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("linea:sidebar-width", String(Math.round(sidebarWidth)));
+  }, [sidebarWidth]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -3490,6 +3719,38 @@ export function App({ initialDocument }: AppProps) {
     return Math.min(1, (wordsBefore + (progressPage?.wordCount ?? 0) * intraRatio) / document.totalWords);
   }, [document, selectedPage, currentPage, voice.activePageNumber, voice.isSpeaking, voice.isPaused, voice.playbackWindow]);
 
+  const startSidebarResize = useCallback((event: { clientX: number; preventDefault: () => void }) => {
+    if (typeof window === "undefined" || window.innerWidth <= 900) {
+      return;
+    }
+
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = sidebarWidth;
+
+    const restore = () => {
+      window.document.body.style.cursor = "";
+      window.document.body.style.userSelect = "";
+    };
+
+    window.document.body.style.cursor = "col-resize";
+    window.document.body.style.userSelect = "none";
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      const nextWidth = startWidth + (moveEvent.clientX - startX);
+      setSidebarWidth(Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, nextWidth)));
+    };
+
+    const handleUp = () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+      restore();
+    };
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp, { once: true });
+  }, [sidebarWidth]);
+
   /* ── loading sample ── */
 
   if (!document && loadingSample) {
@@ -3539,12 +3800,17 @@ export function App({ initialDocument }: AppProps) {
   /* ── document loaded ── */
 
   return (
-    <div className="linea-page linea-bg-document linea-frame">
+    <div
+      className="linea-page linea-bg-document linea-frame"
+      style={{ ["--linea-sidebar-width" as string]: `${sidebarWidth}px` }}
+    >
       <Header
         document={document}
         onGoHome={goHome}
         onUploadClick={() => fileInputRef.current?.click()}
         onLoadSample={(url, name, options) => void loadSamplePdf(url, name, options)}
+        readerLayoutMode={readerLayoutMode}
+        onReaderLayoutModeChange={setReaderLayoutMode}
         loadingSample={loadingSample}
         theme={theme}
         toggleTheme={toggleTheme}
@@ -3578,10 +3844,28 @@ export function App({ initialDocument }: AppProps) {
         onExpand={setExpandPage}
       />
 
+      <div className="linea-sidebar-resize">
+        <button
+          type="button"
+          className="linea-sidebar-resize-handle"
+          onPointerDown={startSidebarResize}
+          onDoubleClick={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
+          aria-label="Resize page sidebar"
+          title="Drag to resize the page sidebar"
+        />
+      </div>
+
       <div className="linea-main">
         {error && (
           <div style={{ padding: '0 28px' }}>
             <div className="linea-error">{error}</div>
+          </div>
+        )}
+        {(voice.voiceError || (playbackBlockedReason && isDemoRoute)) && (
+          <div style={{ padding: "0 28px" }}>
+            <div className="linea-error">
+              {voice.voiceError || playbackBlockedReason}
+            </div>
           </div>
         )}
         {currentPage && (
@@ -3614,9 +3898,11 @@ export function App({ initialDocument }: AppProps) {
                 clipCurrentWord={voice.playbackWindow.currentWord}
                 clipTotalWords={voice.playbackWindow.totalWords}
                 onSeekClip={voice.seekPlayback}
+                pagePlaybackEnabled={pagePlaybackEnabled}
                 paragraphPlaybackEnabled={paragraphPlaybackEnabled}
                 selectionPlaybackEnabled={selectionPlaybackEnabled}
                 selectionPlaybackLabel={selectionPlaybackLabel}
+                playbackBlockedLabel={playbackBlockedLabel}
               />
               <ReaderPanel
                 document={document}
@@ -3624,9 +3910,10 @@ export function App({ initialDocument }: AppProps) {
                 pdfDoc={pdfDoc}
                 pageImageDataUrl={null}
                 selectedPage={selectedPage}
+                readerLayoutMode={readerLayoutMode}
                 settings={settings}
                 activeParagraphId={voice.activeParagraphId}
-                activeCharacterIndex={voice.activeCharacterIndex}
+                activeTokenRange={voice.activeTokenRange}
                 activePageNumber={voice.activePageNumber}
                 playbackRangePageNumber={voice.playbackRangePageNumber}
                 playbackRangeStartParagraphId={voice.playbackRangeStartParagraphId}
@@ -3638,11 +3925,14 @@ export function App({ initialDocument }: AppProps) {
                 onSelectParagraph={setSelectedParagraphId}
                 onSelectText={setSelectedPassage}
                 onSeekToChar={voice.seekToCharIndex}
+                onPlayPage={handlePlayPage}
                 onReadSelection={handleReadSelection}
                 onRunOcr={() => void runOcrForPage(currentPage.pageNumber, true)}
                 ocrStatus={ocrByPage[currentPage.pageNumber] ?? null}
                 selectionPlaybackEnabled={selectionPlaybackEnabled}
                 selectionPlaybackLabel={selectionPlaybackLabel}
+                playPageEnabled={pagePlaybackEnabled}
+                playPageLabel={playbackBlockedLabel}
               />
             </>
           )}
@@ -3657,6 +3947,9 @@ export function App({ initialDocument }: AppProps) {
           selectedParagraph={selectedParagraph}
           selectedParagraphId={selectedParagraphId}
           selectedPage={selectedPage}
+          onPlayPage={handlePlayPage}
+          playPageEnabled={pagePlaybackEnabled}
+          playPageLabel={playbackBlockedLabel}
           onSelectParagraph={setSelectedParagraphId}
         />
       )}
@@ -3666,6 +3959,9 @@ export function App({ initialDocument }: AppProps) {
           doc={pdfDoc}
           pageNumber={expandPage}
           totalPages={document.pageCount}
+          onPlayPage={handlePlayPage}
+          playPageEnabled={pagePlaybackEnabled}
+          playPageLabel={playbackBlockedLabel}
           onClose={() => setExpandPage(null)}
           onNavigate={(p) => {
             setExpandPage(p);

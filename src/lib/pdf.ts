@@ -1,8 +1,16 @@
+export type ReaderRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
 export type ReaderParagraph = {
   id: string;
   text: string;
   start: number;
   end: number;
+  boxes?: ReaderRect[];
   skip?: { reason: string; confidence: number } | null;
   dimSpans?: { start: number; end: number; reason: string }[];
 };
@@ -68,10 +76,140 @@ function normalizeText(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
-function extractLines(items: Array<Record<string, unknown>>) {
-  const lines: string[] = [];
+type ExtractedLine = {
+  text: string;
+  box: ReaderRect | null;
+};
+
+type ParagraphSeed = {
+  text: string;
+  lineIndexes: number[];
+};
+
+const SECTION_HEADING_RE =
+  /^(?:abstract|introduction|background|related work|methods?|results?|discussion|conclusion|conclusions?|references|bibliography|acknowledg(?:e)?ments?)$/i;
+const ALL_CAPS_HEADING_RE = /^[A-Z][A-Z\s\d:.-]{4,}$/;
+const TITLE_CASE_HEADING_RE = /^[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,5}$/;
+const EMAIL_LINE_RE = /[\w.-]+@[\w.-]+\.\w{2,}/;
+const AFFILIATION_LINE_RE =
+  /\b(?:google brain|google research|university|institute|department|faculty|school of|college of|laboratory|lab)\b/i;
+const AUTHOR_MARKER_RE = /[∗*†‡]/;
+const FRONT_MATTER_FOOTNOTE_RE =
+  /^(?:[∗*†‡]\s+|31st Conference on Neural Information Processing Systems|arXiv:)/i;
+const PERMISSION_NOTICE_RE =
+  /\bpermission to reproduce\b|\bjournalistic or scholarly works\b/i;
+const CONTRIBUTION_NOTE_RE = /^(?:[∗*†‡]\s*)?(?:Equal contribution\.|Listing order is random\.)/i;
+
+function isSectionHeading(line: string) {
+  return SECTION_HEADING_RE.test(line);
+}
+
+function looksLikeFrontMatterLine(line: string, pageNumber: number) {
+  if (pageNumber !== 1) {
+    return false;
+  }
+
+  const wordCount = line.split(/\s+/).filter(Boolean).length;
+
+  if (PERMISSION_NOTICE_RE.test(line)) {
+    return true;
+  }
+
+  if (/^[∗*†‡]$/.test(line)) {
+    return true;
+  }
+
+  if (CONTRIBUTION_NOTE_RE.test(line)) {
+    return true;
+  }
+
+  if (FRONT_MATTER_FOOTNOTE_RE.test(line)) {
+    return true;
+  }
+
+  if (EMAIL_LINE_RE.test(line)) {
+    return true;
+  }
+
+  if (AFFILIATION_LINE_RE.test(line) && wordCount <= 12) {
+    return true;
+  }
+
+  if (AUTHOR_MARKER_RE.test(line) && wordCount <= 14) {
+    return true;
+  }
+
+  return false;
+}
+
+function unionRects(rects: ReaderRect[]) {
+  if (rects.length === 0) {
+    return null;
+  }
+
+  const left = Math.min(...rects.map((rect) => rect.x));
+  const top = Math.min(...rects.map((rect) => rect.y));
+  const right = Math.max(...rects.map((rect) => rect.x + rect.width));
+  const bottom = Math.max(...rects.map((rect) => rect.y + rect.height));
+
+  return {
+    x: left,
+    y: top,
+    width: Math.max(0, right - left),
+    height: Math.max(0, bottom - top),
+  } satisfies ReaderRect;
+}
+
+function extractItemRect(item: Record<string, unknown>, pageHeight: number) {
+  const transform = Array.isArray(item.transform) ? item.transform : [];
+  const x = typeof transform[4] === "number" ? transform[4] : null;
+  const y = typeof transform[5] === "number" ? transform[5] : null;
+  const width =
+    typeof item.width === "number"
+      ? item.width
+      : typeof transform[0] === "number"
+        ? Math.abs(transform[0])
+        : 0;
+  const height =
+    typeof item.height === "number"
+      ? item.height
+      : typeof transform[3] === "number"
+        ? Math.abs(transform[3])
+        : 0;
+
+  if (x == null || y == null || width <= 0 || height <= 0) {
+    return null;
+  }
+
+  return {
+    x,
+    y: Math.max(0, pageHeight - y - height),
+    width,
+    height,
+  } satisfies ReaderRect;
+}
+
+function extractLines(items: Array<Record<string, unknown>>, pageHeight: number) {
+  const lines: ExtractedLine[] = [];
   let currentLine = "";
+  let currentRects: ReaderRect[] = [];
   let previousY: number | null = null;
+
+  const flush = () => {
+    const normalized = normalizeText(currentLine);
+    if (!normalized) {
+      currentLine = "";
+      currentRects = [];
+      return;
+    }
+
+    lines.push({
+      text: normalized,
+      box: unionRects(currentRects),
+    });
+    currentLine = "";
+    currentRects = [];
+  };
 
   for (const item of items) {
     const rawText = typeof item.str === "string" ? item.str : "";
@@ -88,8 +226,7 @@ function extractLines(items: Array<Record<string, unknown>>) {
     const shouldBreak = previousY !== null && Math.abs(y - previousY) > 4;
 
     if ((shouldBreak || hasEOL) && currentLine.trim()) {
-      lines.push(normalizeText(currentLine));
-      currentLine = "";
+      flush();
     }
 
     const needsSpace =
@@ -98,70 +235,136 @@ function extractLines(items: Array<Record<string, unknown>>) {
       !/^[,.;:!?)}\]]/.test(text);
 
     currentLine += `${needsSpace ? " " : ""}${text}`;
+    const rect = extractItemRect(item, pageHeight);
+    if (rect) {
+      currentRects.push(rect);
+    }
     previousY = y;
   }
 
   if (currentLine.trim()) {
-    lines.push(normalizeText(currentLine));
+    flush();
   }
 
   return lines;
 }
 
-function splitIntoParagraphs(lines: string[]) {
-  const paragraphs: string[] = [];
+function splitIntoParagraphs(lines: ExtractedLine[], pageNumber: number) {
+  const paragraphs: ParagraphSeed[] = [];
   let current = "";
+  let currentLineIndexes: number[] = [];
+  let currentMode: "body" | "front-matter" | null = null;
+  let trailingFrontMatter = false;
 
-  for (const line of lines) {
-    const normalizedLine = normalizeText(line);
+  const flush = () => {
+    if (!current.trim()) {
+      return;
+    }
+
+    paragraphs.push({
+      text: current.trim(),
+      lineIndexes: [...currentLineIndexes],
+    });
+    current = "";
+    currentLineIndexes = [];
+    currentMode = null;
+  };
+
+  for (const [lineIndex, line] of lines.entries()) {
+    const normalizedLine = normalizeText(line.text);
 
     if (!normalizedLine) {
       continue;
     }
 
-    const shouldBreak =
-      current.length > 380 ||
-      /^[A-Z][A-Z\s\d:.-]{4,}$/.test(normalizedLine) ||
-      /^[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,5}$/.test(normalizedLine);
+    const sectionHeading = isSectionHeading(normalizedLine);
+    if (pageNumber === 1 && CONTRIBUTION_NOTE_RE.test(normalizedLine)) {
+      trailingFrontMatter = true;
+    }
 
-    if (shouldBreak && current) {
-      paragraphs.push(current.trim());
+    const frontMatterLine =
+      trailingFrontMatter || looksLikeFrontMatterLine(normalizedLine, pageNumber);
+    const headingLike =
+      ALL_CAPS_HEADING_RE.test(normalizedLine) ||
+      TITLE_CASE_HEADING_RE.test(normalizedLine);
+
+    if (sectionHeading) {
+      trailingFrontMatter = false;
+      flush();
       current = normalizedLine;
+      currentLineIndexes = [lineIndex];
+      currentMode = "body";
       continue;
     }
 
-    current += `${current ? " " : ""}${normalizedLine}`;
+    if (frontMatterLine) {
+      if (currentMode === "body") {
+        flush();
+      }
 
-    if (/[.!?]"?$/.test(normalizedLine) && current.length > 260) {
-      paragraphs.push(current.trim());
-      current = "";
+      current += `${current ? " " : ""}${normalizedLine}`;
+      currentLineIndexes.push(lineIndex);
+      currentMode = "front-matter";
+
+      if (/[.!?]"?$/.test(normalizedLine) || current.length > 180) {
+        flush();
+      }
+
+      continue;
+    }
+
+    if (currentMode === "front-matter") {
+      flush();
+    }
+
+    if (headingLike && current) {
+      flush();
+    }
+
+    current += `${current ? " " : ""}${normalizedLine}`;
+    currentLineIndexes.push(lineIndex);
+    currentMode = "body";
+
+    if (/[.!?]"?$/.test(normalizedLine) && current.length > 340) {
+      flush();
+      continue;
+    }
+
+    if (current.length > 760) {
+      flush();
     }
   }
 
-  if (current.trim()) {
-    paragraphs.push(current.trim());
-  }
+  flush();
 
   if (paragraphs.length === 0 && lines.length > 0) {
-    paragraphs.push(lines.map(normalizeText).join(" "));
+    paragraphs.push({
+      text: lines.map((line) => normalizeText(line.text)).join(" "),
+      lineIndexes: lines.map((_, index) => index),
+    });
   }
 
   return paragraphs;
 }
 
-function createParagraphOffsets(pageNumber: number, paragraphs: string[]): ReaderParagraph[] {
+function createParagraphOffsets(pageNumber: number, paragraphs: ParagraphSeed[], lines: ExtractedLine[]): ReaderParagraph[] {
   let cursor = 0;
 
   return paragraphs.map((paragraph, index) => {
     const start = cursor;
-    const end = start + paragraph.length;
+    const end = start + paragraph.text.length;
     cursor = end + 2;
+
+    const boxes = paragraph.lineIndexes
+      .map((lineIndex) => lines[lineIndex]?.box ?? null)
+      .filter((box): box is ReaderRect => Boolean(box));
 
     return {
       id: `page-${pageNumber}-paragraph-${index + 1}`,
-      text: paragraph,
+      text: paragraph.text,
       start,
       end,
+      boxes,
     };
   });
 }
@@ -187,8 +390,9 @@ export function buildReaderPageFromText(
     .split(/\r?\n/)
     .map((line) => normalizeText(line))
     .filter(Boolean);
-  const paragraphText = splitIntoParagraphs(rawLines);
-  const paragraphs = createParagraphOffsets(pageNumber, paragraphText);
+  const extractedLines = rawLines.map((line) => ({ text: line, box: null }));
+  const paragraphText = splitIntoParagraphs(extractedLines, pageNumber);
+  const paragraphs = createParagraphOffsets(pageNumber, paragraphText, extractedLines);
 
   const classifications = classifyPage(paragraphs, pageNumber);
   for (let i = 0; i < paragraphs.length; i += 1) {
@@ -253,9 +457,10 @@ export async function loadReaderDocument(
     const page = await pdf.getPage(pageNumber);
     const viewport = page.getViewport({ scale: 1 });
     const textContent = await page.getTextContent();
-    const lines = extractLines(textContent.items as Array<Record<string, unknown>>);
-    const paragraphText = splitIntoParagraphs(lines);
-    const paragraphs = createParagraphOffsets(pageNumber, paragraphText);
+    const extractedLines = extractLines(textContent.items as Array<Record<string, unknown>>, viewport.height);
+    const lines = extractedLines.map((line) => line.text);
+    const paragraphText = splitIntoParagraphs(extractedLines, pageNumber);
+    const paragraphs = createParagraphOffsets(pageNumber, paragraphText, extractedLines);
 
     // Classify paragraphs for skip/dim detection
     const classifications = classifyPage(paragraphs, pageNumber);
