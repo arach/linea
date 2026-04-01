@@ -7,9 +7,14 @@ import {
   type LineaManagedAccessSnapshot,
 } from "../../src/lib/linea-access";
 import { getManagedAccessConfig, hasAnyManagedProviderKey } from "./config";
-import { LineaAccessStore, type StoredAccessGrant, type UsageEvent } from "./store";
+import {
+  LineaAccessStore,
+  type ExplainUsageEvent,
+  type StoredAccessGrant,
+  type UsageEvent,
+} from "./store";
 
-type AccessCapability = "managed-voice" | "managed-alignment";
+type AccessCapability = "managed-voice" | "managed-alignment" | "managed-explain";
 
 type LineaUserProfile = NonNullable<LineaManagedAccessSnapshot["user"]>;
 
@@ -369,11 +374,23 @@ export class LineaAccessService {
     }
 
     if (snapshot.access.status === "signed-out") {
-      throw new LineaAccessError(snapshot.access.reason, 401, "auth_required");
+      throw new LineaAccessError(
+        capability === "managed-explain"
+          ? "Sign in to explain selections."
+          : snapshot.access.reason,
+        401,
+        "auth_required",
+      );
     }
 
     if (snapshot.access.status !== "active" || !snapshot.user?.email) {
-      throw new LineaAccessError(snapshot.access.reason, 403, "access_denied");
+      throw new LineaAccessError(
+        capability === "managed-explain"
+          ? "Managed explain is not enabled for this account."
+          : snapshot.access.reason,
+        403,
+        "access_denied",
+      );
     }
 
     if (capability === "managed-voice") {
@@ -406,6 +423,12 @@ export class LineaAccessService {
       }
     }
 
+    if (capability === "managed-explain") {
+      if (snapshot.access.status !== "active") {
+        throw new LineaAccessError("Managed explain is not enabled for this account.", 403, "explain_denied");
+      }
+    }
+
     return snapshot;
   }
 
@@ -418,6 +441,21 @@ export class LineaAccessService {
     }
 
     await this.store.recordUsage({
+      ...input,
+      email: snapshot.user.email,
+      clerkUserId: snapshot.user.id,
+    });
+  }
+
+  async recordManagedExplainUsage(
+    snapshot: LineaManagedAccessSnapshot,
+    input: Omit<ExplainUsageEvent, "email" | "clerkUserId">,
+  ) {
+    if (!snapshot.enabled || snapshot.access.status !== "active" || !snapshot.user?.email) {
+      return;
+    }
+
+    await this.store.recordExplainUsage({
       ...input,
       email: snapshot.user.email,
       clerkUserId: snapshot.user.id,

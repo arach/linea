@@ -4,6 +4,10 @@ import path from "node:path";
 import type { OraAudioFormat } from "@arach/ora";
 
 import type {
+  LineaExplainRequest,
+  LineaExplainResponse,
+} from "../../src/lib/linea-explain";
+import type {
   LineaVoice,
   LineaVoiceCredentialStatus,
   LineaVoiceProviderId,
@@ -62,11 +66,134 @@ type VoxCredentialScope = {
   allowLocalCredentials?: boolean;
 };
 
+type ExplainProviderRuntime = {
+  provider: "groq" | "openai";
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+};
+
 function resolveCredentialScope(scope?: VoxCredentialScope) {
   return {
     allowManagedCredentials: scope?.allowManagedCredentials ?? false,
     allowLocalCredentials: scope?.allowLocalCredentials ?? true,
   };
+}
+
+function parseNullableInteger(value: string | undefined, fallback: number) {
+  if (value == null || value.trim() === "") {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getExplainModel() {
+  return (
+    process.env.LINEA_EXPLAIN_MODEL?.trim() ||
+    process.env.GROQ_EXPLAIN_MODEL?.trim() ||
+    "llama-3.1-8b-instant"
+  );
+}
+
+function getExplainInputTokenLimit() {
+  return parseNullableInteger(process.env.LINEA_EXPLAIN_MAX_INPUT_TOKENS, 700);
+}
+
+function getExplainOutputTokenLimit() {
+  return parseNullableInteger(process.env.LINEA_EXPLAIN_MAX_OUTPUT_TOKENS, 220);
+}
+
+function estimateTokens(value: string) {
+  return Math.max(1, Math.ceil(value.trim().length / 4));
+}
+
+function getManagedGroqApiKey() {
+  return process.env.LINEA_MANAGED_GROQ_API_KEY?.trim() ?? "";
+}
+
+function getLocalGroqApiKey() {
+  return process.env.GROQ_API_KEY?.trim() ?? "";
+}
+
+async function resolveExplainRuntime(scope?: VoxCredentialScope): Promise<ExplainProviderRuntime | null> {
+  const allowManaged = scope?.allowManagedCredentials ?? false;
+  const allowLocal = scope?.allowLocalCredentials ?? true;
+
+  if (allowManaged) {
+    const managedGroq = getManagedGroqApiKey();
+    if (managedGroq) {
+      return {
+        provider: "groq",
+        apiKey: managedGroq,
+        baseUrl: "https://api.groq.com/openai/v1",
+        model: getExplainModel(),
+      };
+    }
+  }
+
+  if (allowLocal) {
+    const localGroq = getLocalGroqApiKey();
+    if (localGroq) {
+      return {
+        provider: "groq",
+        apiKey: localGroq,
+        baseUrl: "https://api.groq.com/openai/v1",
+        model: getExplainModel(),
+      };
+    }
+  }
+
+  const openAiKey = await getProviderApiKeyWithScope("openai", {
+    allowManaged,
+    allowLocal,
+  });
+
+  if (openAiKey) {
+    return {
+      provider: "openai",
+      apiKey: openAiKey,
+      baseUrl: "https://api.openai.com/v1",
+      model:
+        process.env.OPENAI_EXPLAIN_MODEL?.trim() ||
+        process.env.OPENAI_MODEL?.trim() ||
+        "gpt-4.1-mini",
+    };
+  }
+
+  return null;
+}
+
+function getMessageTextContent(content: unknown) {
+  if (typeof content === "string") {
+    return content.trim();
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .map((entry) => {
+        if (typeof entry === "string") {
+          return entry;
+        }
+
+        if (
+          entry &&
+          typeof entry === "object" &&
+          "type" in entry &&
+          (entry as { type?: string }).type === "text" &&
+          "text" in entry
+        ) {
+          return String((entry as { text?: unknown }).text ?? "");
+        }
+
+        return "";
+      })
+      .join("\n")
+      .trim();
+  }
+
+  return "";
 }
 
 export class VoxService {
@@ -157,6 +284,115 @@ export class VoxService {
   async deleteCredential(provider: LineaVoiceProviderId) {
     await deleteProviderApiKey(provider);
     return getProviderCredentialStatus(provider);
+  }
+
+  async explain(
+    input: LineaExplainRequest,
+    scope?: VoxCredentialScope,
+  ): Promise<LineaExplainResponse> {
+    const runtime = await resolveExplainRuntime(scope);
+    if (!runtime) {
+      throw new Error("Add a Groq or OpenAI key, or sign in to use explanations.");
+    }
+
+    const text = input.text.trim();
+    const contextText = input.contextText?.trim() ?? "";
+
+    if (!text) {
+      throw new Error("Text is required.");
+    }
+
+    if (text.length > 8_000) {
+      throw new Error("Select a shorter passage to explain.");
+    }
+
+    const systemPrompt =
+      "You are Linea, a thoughtful reading companion. Explain the selected passage clearly, concretely, and without hype. Keep the answer concise, usually 2 short paragraphs. Define jargon in plain language. If context is available, use it to say what role the passage plays in the document.";
+    const userPrompt = [
+      input.documentTitle ? `Document: ${input.documentTitle}` : "",
+      input.pageNumber ? `Page: ${input.pageNumber}` : "",
+      contextText ? `Context:\n${contextText}` : "",
+      `Selected passage:\n${text}`,
+      "Explain this selection in clear language for a reader who wants help understanding it.",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    const estimatedInputTokens = estimateTokens(systemPrompt) + estimateTokens(userPrompt);
+    const maxInputTokens = getExplainInputTokenLimit();
+    const maxOutputTokens = getExplainOutputTokenLimit();
+
+    if (estimatedInputTokens > maxInputTokens) {
+      throw new Error(
+        `This selection is a little too large to explain in one shot. Try something under about ${maxInputTokens} prompt tokens.`,
+      );
+    }
+
+    const response = await fetch(`${runtime.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${runtime.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: runtime.model,
+        temperature: 0.4,
+        max_tokens: maxOutputTokens,
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+          {
+            role: "user",
+            content: userPrompt,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as
+        | { error?: { message?: string } }
+        | null;
+      throw new Error(payload?.error?.message ?? `Explain request failed with ${response.status}`);
+    }
+
+    const payload = (await response.json()) as {
+      choices?: Array<{
+        message?: {
+          content?: unknown;
+        };
+      }>;
+      usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        total_tokens?: number;
+      };
+    };
+
+    const explanation = getMessageTextContent(payload.choices?.[0]?.message?.content);
+    if (!explanation) {
+      throw new Error("The model returned an empty explanation.");
+    }
+
+    const inputTokens = Math.max(0, Math.round(payload.usage?.prompt_tokens ?? estimatedInputTokens));
+    const outputTokens = Math.max(0, Math.round(payload.usage?.completion_tokens ?? estimateTokens(explanation)));
+    const totalTokens = Math.max(
+      inputTokens + outputTokens,
+      Math.round(payload.usage?.total_tokens ?? 0),
+    );
+
+    return {
+      explanation,
+      provider: runtime.provider,
+      model: runtime.model,
+      usage: {
+        inputTokens,
+        outputTokens,
+        totalTokens,
+      },
+    };
   }
 
   async synthesize(

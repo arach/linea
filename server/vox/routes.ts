@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 
 import express from "express";
 
+import type { LineaExplainRequest } from "../../src/lib/linea-explain";
 import type { LineaVoiceProviderId, LineaVoiceSynthesisRequest } from "../../src/lib/linea-voice";
 import { getManagedAccessConfig } from "../access/config";
 import { LineaAccessError, LineaAccessService } from "../access/service";
@@ -171,6 +172,54 @@ export function createVoxRouter(access = new LineaAccessService()) {
       });
       res.status(error instanceof LineaAccessError ? error.statusCode : 500).json({
         error: error instanceof Error ? error.message : "Synthesis failed",
+      });
+    }
+  });
+
+  router.post("/explain", jsonBody, async (req, res) => {
+    try {
+      const payload = req.body as LineaExplainRequest;
+      const text = payload?.text?.trim() ?? "";
+
+      if (!text) {
+        res.status(400).json({ error: "Text is required" });
+        return;
+      }
+
+      if (text.length > 8_000) {
+        res.status(400).json({ error: "Select a shorter passage to explain." });
+        return;
+      }
+
+      const credentialScope = await access.getCredentialScope(req);
+      const session = managedAccessEnabled
+        ? await access.assertCapability(req, "managed-explain")
+        : null;
+
+      const explanation = await vox.explain(payload, credentialScope);
+
+      if (session) {
+        await access.recordManagedExplainUsage(session, {
+          provider: explanation.provider,
+          model: explanation.model,
+          inputTokens: explanation.usage.inputTokens,
+          outputTokens: explanation.usage.outputTokens,
+          metadata: {
+            pageNumber: payload.pageNumber ?? null,
+            documentTitle: payload.documentTitle ?? null,
+            textLength: payload.text.length,
+            totalTokens: explanation.usage.totalTokens,
+          },
+        });
+      }
+
+      res.json(explanation);
+    } catch (error) {
+      console.error("[linea:vox] explain-failed", {
+        error: error instanceof Error ? error.message : "Explain failed",
+      });
+      res.status(error instanceof LineaAccessError ? error.statusCode : 500).json({
+        error: error instanceof Error ? error.message : "Explain failed",
       });
     }
   });

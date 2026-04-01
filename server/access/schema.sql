@@ -25,3 +25,19 @@ create table if not exists linea_usage_events (
 
 create index if not exists linea_usage_events_email_created_at_idx
   on linea_usage_events (email, created_at desc);
+
+create table if not exists linea_llm_usage_events (
+  id text primary key,
+  email text not null,
+  clerk_user_id text,
+  provider text not null,
+  model text not null,
+  input_tokens integer not null,
+  output_tokens integer not null,
+  total_tokens integer not null,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists linea_llm_usage_events_email_created_at_idx
+  on linea_llm_usage_events (email, created_at desc);

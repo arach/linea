@@ -1995,6 +1995,18 @@ textarea {
   box-shadow: inset 0 -1px 0 rgba(212, 115, 74, 0.08);
 }
 
+.linea-saved-highlight {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.linea-note-highlight {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 10%, transparent), color-mix(in srgb, var(--accent) 10%, transparent)),
+    linear-gradient(180deg, transparent calc(100% - 2px), color-mix(in srgb, var(--accent) 36%, transparent) 0);
+  color: var(--text);
+}
+
 .linea-paragraph.active .linea-reading-highlight {
   background: rgba(212, 115, 74, 0.18);
 }
@@ -2073,6 +2085,19 @@ textarea {
   animation: linea-pop-in 0.12s ease-out;
 }
 
+.linea-selection-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg) 92%, white 8%);
+  box-shadow: 0 14px 34px -22px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
 .linea-selection-popover-btn {
   display: inline-flex;
   align-items: center;
@@ -2087,13 +2112,116 @@ textarea {
   border-radius: 8px;
   cursor: pointer;
   white-space: nowrap;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
 .linea-selection-popover-btn:hover {
   background: var(--tint-faint);
   border-color: var(--text-3);
+}
+
+.linea-selection-popover-btn:disabled {
+  opacity: 0.56;
+  cursor: not-allowed;
+}
+
+.linea-selection-popover-btn.active {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+.linea-selection-note-popover {
+  min-width: min(360px, calc(100vw - 32px));
+}
+
+.linea-selection-note-card {
+  display: grid;
+  gap: 12px;
+  width: min(360px, calc(100vw - 32px));
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, white 78%, var(--bg) 22%), color-mix(in srgb, white 86%, var(--bg) 14%)),
+    var(--surface-card);
+  box-shadow: 0 24px 54px -34px rgba(0, 0, 0, 0.38);
+}
+
+.linea-selection-note-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.linea-selection-note-snippet {
+  font-size: 0.88rem;
+  line-height: 1.65;
+  color: var(--text-2);
+}
+
+.linea-selection-note-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 104px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, white 72%, var(--bg) 28%);
+  padding: 12px 14px;
+  color: var(--text);
+  outline: none;
+}
+
+.linea-selection-note-input:focus {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.linea-selection-note-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.linea-selection-explain-card {
+  width: min(420px, calc(100vw - 32px));
+}
+
+.linea-selection-explain-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9rem;
+  color: var(--text-2);
+}
+
+.linea-selection-explain-error {
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface-card));
+  padding: 12px 14px;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.linea-selection-explain-body {
+  white-space: pre-wrap;
+  font-size: 0.94rem;
+  line-height: 1.72;
+  color: var(--text);
+}
+
+.linea-selection-explain-meta {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
 }
 
 @keyframes linea-pop-in {
@@ -2506,6 +2634,65 @@ textarea {
   overflow-y: auto;
   flex: 1;
   min-height: 0;
+}
+
+.context-annotation-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.context-annotation-item {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 13px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface-card) 84%, transparent);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
+}
+
+.context-annotation-item:hover {
+  border-color: color-mix(in srgb, var(--accent) 26%, transparent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface-card));
+  transform: translateY(-1px);
+}
+
+.context-annotation-item.is-note {
+  border-color: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.context-annotation-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.context-annotation-kind,
+.context-annotation-meta {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.context-annotation-kind {
+  color: var(--accent);
+}
+
+.context-annotation-meta {
+  color: var(--text-3);
+  text-align: right;
+}
+
+.context-annotation-body {
+  font-size: 0.88rem;
+  line-height: 1.65;
+  color: var(--text-2);
 }
 
 .context-outline::-webkit-scrollbar {

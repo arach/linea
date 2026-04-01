@@ -21,6 +21,12 @@ export type UsageSummary = {
   transcriptionSeconds: number;
 };
 
+export type ExplainUsageSummary = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+};
+
 export type UsageEvent = {
   email: string;
   clerkUserId: string | null;
@@ -32,6 +38,20 @@ export type UsageEvent = {
 };
 
 type MemoryUsageEvent = UsageEvent & {
+  createdAt: string;
+};
+
+export type ExplainUsageEvent = {
+  email: string;
+  clerkUserId: string | null;
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  metadata?: Record<string, string | number | boolean | null>;
+};
+
+type MemoryExplainUsageEvent = ExplainUsageEvent & {
   createdAt: string;
 };
 
@@ -51,6 +71,7 @@ type DatabaseUsageSummaryRow = {
 };
 
 const memoryUsageEvents = new Map<string, MemoryUsageEvent[]>();
+const memoryExplainUsageEvents = new Map<string, MemoryExplainUsageEvent[]>();
 
 function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
@@ -83,6 +104,8 @@ export class LineaAccessStore {
       : null;
 
   private warnedDatabaseError = false;
+  private llmUsageTableEnsured = false;
+  private llmUsageTablePromise: Promise<void> | null = null;
 
   getMeteringMode(): LineaMeteringMode {
     if (this.sql) {
@@ -243,6 +266,151 @@ export class LineaAccessStore {
       createdAt: new Date().toISOString(),
     });
     memoryUsageEvents.set(normalizedEmail, events);
+  }
+
+  async getExplainUsageSummary(email: string, startsAt: string): Promise<ExplainUsageSummary> {
+    const normalizedEmail = normalizeEmail(email);
+
+    if (this.sql) {
+      try {
+        await this.ensureLlmUsageTable();
+        const rows = await this.sql<Array<{
+          input_tokens: string | number | null;
+          output_tokens: string | number | null;
+          total_tokens: string | number | null;
+        }>>`
+          select
+            coalesce(sum(input_tokens), 0) as input_tokens,
+            coalesce(sum(output_tokens), 0) as output_tokens,
+            coalesce(sum(total_tokens), 0) as total_tokens
+          from linea_llm_usage_events
+          where lower(email) = lower(${normalizedEmail})
+            and created_at >= ${startsAt}
+        `;
+
+        const row = rows[0];
+        return {
+          inputTokens: toNumber(row?.input_tokens),
+          outputTokens: toNumber(row?.output_tokens),
+          totalTokens: toNumber(row?.total_tokens),
+        };
+      } catch (error) {
+        this.warnDatabaseError("llm usage summary", error);
+      }
+    }
+
+    if (!shouldUseMemoryFallback()) {
+      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    }
+
+    const windowStart = new Date(startsAt).getTime();
+    const events = memoryExplainUsageEvents.get(normalizedEmail) ?? [];
+
+    return events.reduce<ExplainUsageSummary>(
+      (summary, event) => {
+        if (new Date(event.createdAt).getTime() < windowStart) {
+          return summary;
+        }
+
+        return {
+          inputTokens: summary.inputTokens + event.inputTokens,
+          outputTokens: summary.outputTokens + event.outputTokens,
+          totalTokens: summary.totalTokens + event.inputTokens + event.outputTokens,
+        };
+      },
+      { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    );
+  }
+
+  async recordExplainUsage(event: ExplainUsageEvent) {
+    const normalizedEmail = normalizeEmail(event.email);
+    const inputTokens = Math.max(0, Math.round(event.inputTokens));
+    const outputTokens = Math.max(0, Math.round(event.outputTokens));
+    const totalTokens = inputTokens + outputTokens;
+
+    if (totalTokens === 0) {
+      return;
+    }
+
+    if (this.sql) {
+      try {
+        await this.ensureLlmUsageTable();
+        await this.sql`
+          insert into linea_llm_usage_events (
+            id,
+            email,
+            clerk_user_id,
+            provider,
+            model,
+            input_tokens,
+            output_tokens,
+            total_tokens,
+            metadata,
+            created_at
+          ) values (
+            ${crypto.randomUUID()},
+            ${normalizedEmail},
+            ${event.clerkUserId},
+            ${event.provider},
+            ${event.model},
+            ${inputTokens},
+            ${outputTokens},
+            ${totalTokens},
+            ${this.sql.json(event.metadata ?? {})},
+            now()
+          )
+        `;
+        return;
+      } catch (error) {
+        this.warnDatabaseError("llm usage write", error);
+      }
+    }
+
+    if (!shouldUseMemoryFallback()) {
+      return;
+    }
+
+    const events = memoryExplainUsageEvents.get(normalizedEmail) ?? [];
+    events.push({
+      ...event,
+      email: normalizedEmail,
+      inputTokens,
+      outputTokens,
+      createdAt: new Date().toISOString(),
+    });
+    memoryExplainUsageEvents.set(normalizedEmail, events);
+  }
+
+  private async ensureLlmUsageTable() {
+    if (!this.sql || this.llmUsageTableEnsured) {
+      return;
+    }
+
+    if (!this.llmUsageTablePromise) {
+      this.llmUsageTablePromise = (async () => {
+        await this.sql!`
+          create table if not exists linea_llm_usage_events (
+            id text primary key,
+            email text not null,
+            clerk_user_id text,
+            provider text not null,
+            model text not null,
+            input_tokens integer not null,
+            output_tokens integer not null,
+            total_tokens integer not null,
+            metadata jsonb not null default '{}'::jsonb,
+            created_at timestamptz not null default now()
+          )
+        `;
+        await this.sql!`
+          create index if not exists linea_llm_usage_events_email_created_at_idx
+          on linea_llm_usage_events (email, created_at desc)
+        `;
+        this.llmUsageTableEnsured = true;
+      })();
+    }
+
+    await this.llmUsageTablePromise;
   }
 
   private warnDatabaseError(action: string, error: unknown) {

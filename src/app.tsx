@@ -1,16 +1,20 @@
 import {
+  Check,
   ArrowRight,
   BookOpen,
   ChevronLeft,
   ChevronRight,
+  Copy,
   Expand,
   Eye,
   FileUp,
+  Highlighter,
   LoaderCircle,
   Lock,
   Menu,
   Moon,
   MousePointer2,
+  NotebookPen,
   Sun,
   Pause,
   Play,
@@ -44,6 +48,7 @@ import type {
   ReaderParagraph,
   ReaderRect,
 } from "@/lib/pdf";
+import { fetchLineaExplanation, type LineaExplainResponse } from "@/lib/linea-explain";
 import { buildReaderPageFromText, getPdfModule, loadReaderDocument } from "@/lib/pdf";
 import {
   defaultReaderSettings,
@@ -1350,7 +1355,10 @@ function renderDimSpans(paragraph: ReaderParagraph) {
 
 function renderParagraphText(
   paragraph: ReaderParagraph,
-  options?: { highlightRange?: { start: number; end: number } | null },
+  options?: {
+    highlightRange?: { start: number; end: number } | null;
+    annotationRanges?: Array<{ start: number; end: number; tone: "highlight" | "note" }>;
+  },
 ) {
   const highlightRange = options?.highlightRange
     ? {
@@ -1358,9 +1366,16 @@ function renderParagraphText(
         end: Math.max(0, Math.min(paragraph.text.length, options.highlightRange.end)),
       }
     : null;
+  const annotationRanges = (options?.annotationRanges ?? [])
+    .map((range) => ({
+      ...range,
+      start: Math.max(0, Math.min(paragraph.text.length, range.start)),
+      end: Math.max(0, Math.min(paragraph.text.length, range.end)),
+    }))
+    .filter((range) => range.end > range.start);
   const dimSpans = paragraph.dimSpans ?? [];
 
-  if (dimSpans.length === 0 && !highlightRange) {
+  if (dimSpans.length === 0 && !highlightRange && annotationRanges.length === 0) {
     return (
       <span className="linea-text-fragment" data-char-offset={0}>
         {paragraph.text}
@@ -1372,6 +1387,10 @@ function renderParagraphText(
   if (highlightRange) {
     breakpoints.add(highlightRange.start);
     breakpoints.add(highlightRange.end);
+  }
+  for (const range of annotationRanges) {
+    breakpoints.add(range.start);
+    breakpoints.add(range.end);
   }
   for (const span of dimSpans) {
     breakpoints.add(span.start);
@@ -1396,9 +1415,17 @@ function renderParagraphText(
       end <= highlightRange.end &&
       highlightRange.end > highlightRange.start,
     );
+    const hasNote = annotationRanges.some(
+      (range) => range.tone === "note" && start < range.end && end > range.start,
+    );
+    const hasSavedHighlight =
+      !hasNote &&
+      annotationRanges.some((range) => start < range.end && end > range.start);
     const className = [
       "linea-text-fragment",
       isDimmed ? "linea-dim-span" : "",
+      hasSavedHighlight ? "linea-saved-highlight" : "",
+      hasNote ? "linea-note-highlight" : "",
       isHighlighted ? "linea-reading-highlight" : "",
     ].filter(Boolean).join(" ");
 
@@ -1424,6 +1451,89 @@ type ReaderTextSelection = {
   endCharIndex: number | null;
 };
 
+type ReaderAnnotation = {
+  id: string;
+  pageNumber: number;
+  startCharIndex: number;
+  endCharIndex: number;
+  text: string;
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+function getDocumentAnnotationStorageKey(document: ReaderDocument) {
+  const sourceKey =
+    document.source?.url ??
+    document.source?.localPath ??
+    `${document.fileName}:${document.pageCount}`;
+
+  return `linea:annotations:${sourceKey}`;
+}
+
+function resolveSelectionRange(selection: ReaderTextSelection, page: ReaderPage) {
+  if (
+    selection.startCharIndex != null &&
+    selection.endCharIndex != null &&
+    selection.endCharIndex > selection.startCharIndex
+  ) {
+    return {
+      startCharIndex: selection.startCharIndex,
+      endCharIndex: selection.endCharIndex,
+    };
+  }
+
+  if (!selection.paragraphId) {
+    return null;
+  }
+
+  const paragraph = page.paragraphs.find((entry) => entry.id === selection.paragraphId);
+  if (!paragraph) {
+    return null;
+  }
+
+  return {
+    startCharIndex: paragraph.start,
+    endCharIndex: paragraph.end,
+  };
+}
+
+function clearBrowserSelection() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.getSelection()?.removeAllRanges();
+}
+
+function buildResearchLink(provider: "chatgpt" | "gemini" | "google", text: string) {
+  if (provider === "chatgpt") {
+    return "https://chatgpt.com/";
+  }
+
+  if (provider === "gemini") {
+    return "https://gemini.google.com/app";
+  }
+
+  return `https://www.google.com/search?q=${encodeURIComponent(text)}`;
+}
+
+function getExplainBlockedLabel(snapshot: LineaManagedAccessSnapshot) {
+  if (!snapshot.enabled) {
+    return "Explain selection";
+  }
+
+  if (snapshot.access.status === "signed-out") {
+    return "Sign in to explain";
+  }
+
+  if (snapshot.access.status !== "active") {
+    return "Explain unavailable";
+  }
+
+  return "Explain selection";
+}
+
 /* ─── context panel ─── */
 
 function snippetText(text: string, maxLen = 80) {
@@ -1436,6 +1546,7 @@ function ContextPanel({
   document,
   page,
   voice,
+  annotations,
   selectedPassage,
   selectedParagraph,
   selectedParagraphId,
@@ -1448,6 +1559,7 @@ function ContextPanel({
   document: ReaderDocument;
   page: ReaderPage;
   voice: ReturnType<typeof useVoiceConsole>;
+  annotations: ReaderAnnotation[];
   selectedPassage: ReaderTextSelection | null;
   selectedParagraph: ReaderParagraph | null;
   selectedParagraphId: string | null;
@@ -1475,6 +1587,10 @@ function ContextPanel({
     [selectedPassage],
   );
   const isPlaybackRangeVisible = voice.playbackRangePageNumber === page.pageNumber;
+  const visibleAnnotations = useMemo(
+    () => [...annotations].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)).slice(0, 6),
+    [annotations],
+  );
 
   return (
     <aside className="linea-context-panel">
@@ -1557,6 +1673,51 @@ function ContextPanel({
           <span className="linea-panel-label">
             {selectedParagraph.text.split(/\s+/).filter(Boolean).length} words
           </span>
+        </div>
+      )}
+
+      {visibleAnnotations.length > 0 && (
+        <div className="linea-panel-section">
+          <span className="linea-panel-label">
+            Notes &amp; highlights · {annotations.length}
+          </span>
+          <div className="context-annotation-list">
+            {visibleAnnotations.map((annotation) => {
+              const paragraph = page.paragraphs.find(
+                (entry) =>
+                  annotation.endCharIndex > entry.start &&
+                  annotation.startCharIndex < entry.end,
+              );
+              const isNote = Boolean(annotation.note?.trim());
+
+              return (
+                <button
+                  key={annotation.id}
+                  type="button"
+                  className={`context-annotation-item${isNote ? " is-note" : ""}`}
+                  onClick={() => {
+                    if (paragraph) {
+                      onSelectParagraph(paragraph.id);
+                      const el = window.document.querySelector(`[data-paragraph-id="${paragraph.id}"]`);
+                      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                    }
+                  }}
+                >
+                  <div className="context-annotation-top">
+                    <span className="context-annotation-kind">
+                      {isNote ? "Note" : "Highlight"}
+                    </span>
+                    <span className="context-annotation-meta">
+                      {snippetText(annotation.text, 34)}
+                    </span>
+                  </div>
+                  <div className="context-annotation-body">
+                    {isNote ? annotation.note : annotation.text}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -2812,6 +2973,8 @@ function ReaderPanel({
   selectedPage,
   readerLayoutMode,
   settings,
+  selectedPassage,
+  annotations,
   activeParagraphId,
   activeTokenRange,
   activePageNumber,
@@ -2827,6 +2990,12 @@ function ReaderPanel({
   onSeekToChar,
   onPlayPage,
   onReadSelection,
+  explainEnabled,
+  explainActionLabel,
+  onExplainSelection,
+  onHighlightSelection,
+  onSaveSelectionNote,
+  onCopySelection,
   onRunOcr,
   ocrStatus,
   selectionPlaybackEnabled,
@@ -2841,6 +3010,8 @@ function ReaderPanel({
   selectedPage: number;
   readerLayoutMode: ReaderLayoutMode;
   settings: ReaderSettings;
+  selectedPassage: ReaderTextSelection | null;
+  annotations: ReaderAnnotation[];
   activeParagraphId: string | null;
   activeTokenRange: { start: number; end: number } | null;
   activePageNumber: number | null;
@@ -2856,6 +3027,12 @@ function ReaderPanel({
   onSeekToChar: (charIndex: number) => void;
   onPlayPage: () => void;
   onReadSelection: () => void;
+  explainEnabled: boolean;
+  explainActionLabel: string;
+  onExplainSelection: (selection: ReaderTextSelection, page: ReaderPage) => Promise<LineaExplainResponse>;
+  onHighlightSelection: (selection: ReaderTextSelection) => void;
+  onSaveSelectionNote: (selection: ReaderTextSelection, note: string) => void;
+  onCopySelection: (selection: ReaderTextSelection) => void;
   onRunOcr: () => void;
   ocrStatus: {
     state: "idle" | "probing" | "running" | "completed" | "empty" | "failed";
@@ -2870,6 +3047,22 @@ function ReaderPanel({
   const font = readerFonts[settings.font];
   const readerTheme = readerThemes[settings.theme];
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
+  const [noteComposer, setNoteComposer] = useState<{
+    selection: ReaderTextSelection;
+    rect: DOMRect;
+    value: string;
+  } | null>(null);
+  const [explanationCard, setExplanationCard] = useState<{
+    selection: ReaderTextSelection;
+    rect: DOMRect;
+    status: "loading" | "done" | "error";
+    explanation: string;
+    error: string;
+    provider: "groq" | "openai" | null;
+    model: string | null;
+    usage: LineaExplainResponse["usage"] | null;
+  } | null>(null);
+  const [copyState, setCopyState] = useState<"idle" | "done">("idle");
   const isPlaybackRangeVisible = playbackRangePageNumber === page.pageNumber;
   const showSplitView = readerLayoutMode === "split" && Boolean(pdfDoc);
   const shouldShowPdfSource =
@@ -2883,15 +3076,11 @@ function ReaderPanel({
     onSelectText(null);
     onSelectParagraph(null);
     setSelectionRect(null);
+    setNoteComposer(null);
+    setExplanationCard(null);
   }, [onSelectParagraph, onSelectText, page.pageNumber]);
 
   const handleSelection = () => {
-    if (!selectionPlaybackEnabled) {
-      onSelectText(null);
-      setSelectionRect(null);
-      return;
-    }
-
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || !articleRef.current) {
       onSelectText(null);
@@ -2995,6 +3184,68 @@ function ReaderPanel({
     window.document.addEventListener("selectionchange", onSelChange);
     return () => window.document.removeEventListener("selectionchange", onSelChange);
   }, []);
+
+  useEffect(() => {
+    if (copyState !== "done") {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => setCopyState("idle"), 1200);
+    return () => window.clearTimeout(timeout);
+  }, [copyState]);
+
+  const annotationRangesByParagraphId = useMemo(() => {
+    const map: Record<string, Array<{ start: number; end: number; tone: "highlight" | "note" }>> = {};
+
+    for (const annotation of annotations) {
+      for (const paragraph of page.paragraphs) {
+        if (annotation.endCharIndex <= paragraph.start || annotation.startCharIndex >= paragraph.end) {
+          continue;
+        }
+
+        const localStart = Math.max(0, annotation.startCharIndex - paragraph.start);
+        const localEnd = Math.min(paragraph.text.length, annotation.endCharIndex - paragraph.start);
+        if (localEnd <= localStart) {
+          continue;
+        }
+
+        map[paragraph.id] ??= [];
+        map[paragraph.id]!.push({
+          start: localStart,
+          end: localEnd,
+          tone: annotation.note?.trim() ? "note" : "highlight",
+        });
+      }
+    }
+
+    return map;
+  }, [annotations, page.paragraphs]);
+
+  const existingSelectionAnnotation = useMemo(() => {
+    if (!selectedPassage) {
+      return null;
+    }
+
+    const range = resolveSelectionRange(selectedPassage, page);
+    if (!range) {
+      return null;
+    }
+
+    return annotations.find(
+      (annotation) =>
+        annotation.pageNumber === page.pageNumber &&
+        annotation.startCharIndex === range.startCharIndex &&
+        annotation.endCharIndex === range.endCharIndex,
+    ) ?? null;
+  }, [annotations, page, selectedPassage]);
+
+  const closeSelectionUi = useCallback(() => {
+    clearBrowserSelection();
+    onSelectText(null);
+    setSelectionRect(null);
+    setNoteComposer(null);
+    setExplanationCard(null);
+  }, [onSelectText]);
 
   const sourceOverlayRects = useMemo(() => {
     const activeParagraph =
@@ -3134,6 +3385,7 @@ function ReaderPanel({
               <span className="linea-paragraph-text">
                 {renderParagraphText(paragraph, {
                   highlightRange: activeHighlightRange,
+                  annotationRanges: annotationRangesByParagraphId[paragraph.id] ?? [],
                 })}
               </span>
             </div>
@@ -3186,7 +3438,7 @@ function ReaderPanel({
         </>
       )}
 
-      {selectionPlaybackEnabled && selectionRect && createPortal(
+      {selectedPassage && selectionRect && !noteComposer && !explanationCard && createPortal(
         <div
           className="linea-selection-popover"
           style={{
@@ -3194,17 +3446,291 @@ function ReaderPanel({
             left: `${selectionRect.left + selectionRect.width / 2}px`,
           }}
         >
-          <button
-            type="button"
-            className="linea-selection-popover-btn"
-            onMouseDown={(e) => {
-              e.preventDefault();
-              onReadSelection();
-              setSelectionRect(null);
-            }}
-          >
-            <Play size={12} /> {selectionPlaybackLabel}
-          </button>
+          <div className="linea-selection-toolbar">
+            <button
+              type="button"
+              className="linea-selection-popover-btn"
+              disabled={!selectionPlaybackEnabled}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onReadSelection();
+                closeSelectionUi();
+              }}
+              title={!selectionPlaybackEnabled ? playPageLabel : undefined}
+            >
+              <Play size={12} /> {selectionPlaybackEnabled ? selectionPlaybackLabel : playPageLabel}
+            </button>
+            <button
+              type="button"
+              className="linea-selection-popover-btn"
+              disabled={!explainEnabled}
+              title={!explainEnabled ? explainActionLabel : undefined}
+              onMouseDown={async (e) => {
+                e.preventDefault();
+                if (!explainEnabled) {
+                  return;
+                }
+                const anchorRect = selectionRect;
+                setExplanationCard({
+                  selection: selectedPassage,
+                  rect: anchorRect,
+                  status: "loading",
+                  explanation: "",
+                  error: "",
+                  provider: null,
+                  model: null,
+                  usage: null,
+                });
+                setSelectionRect(null);
+
+                try {
+                  const result = await onExplainSelection(selectedPassage, page);
+                  setExplanationCard((current) => {
+                    if (!current) {
+                      return current;
+                    }
+
+                    return {
+                      ...current,
+                      status: "done",
+                      explanation: result.explanation,
+                      error: "",
+                      provider: result.provider,
+                      model: result.model,
+                      usage: result.usage,
+                    };
+                  });
+                } catch (error) {
+                  setExplanationCard((current) => {
+                    if (!current) {
+                      return current;
+                    }
+
+                    return {
+                      ...current,
+                      status: "error",
+                      explanation: "",
+                      error: error instanceof Error ? error.message : "Explain failed.",
+                      provider: null,
+                      model: null,
+                      usage: null,
+                    };
+                  });
+                }
+              }}
+            >
+              <Sparkles size={12} /> {explainEnabled ? "Explain" : explainActionLabel}
+            </button>
+            <button
+              type="button"
+              className={`linea-selection-popover-btn${existingSelectionAnnotation ? " active" : ""}`}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onHighlightSelection(selectedPassage);
+                closeSelectionUi();
+              }}
+            >
+              <Highlighter size={12} /> {existingSelectionAnnotation ? "Saved" : "Highlight"}
+            </button>
+            <button
+              type="button"
+              className="linea-selection-popover-btn"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setNoteComposer({
+                  selection: selectedPassage,
+                  rect: selectionRect,
+                  value: existingSelectionAnnotation?.note ?? "",
+                });
+                setSelectionRect(null);
+              }}
+            >
+              <NotebookPen size={12} /> {existingSelectionAnnotation?.note ? "Edit note" : "Add note"}
+            </button>
+            <button
+              type="button"
+              className="linea-selection-popover-btn"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onCopySelection(selectedPassage);
+                setCopyState("done");
+              }}
+            >
+              {copyState === "done" ? <Check size={12} /> : <Copy size={12} />}
+              {copyState === "done" ? "Copied" : "Copy"}
+            </button>
+          </div>
+        </div>,
+        window.document.body,
+      )}
+
+      {explanationCard && createPortal(
+        <div
+          className="linea-selection-popover linea-selection-note-popover"
+          style={{
+            top: `${explanationCard.rect.top - 12}px`,
+            left: `${explanationCard.rect.left + explanationCard.rect.width / 2}px`,
+          }}
+        >
+          <div className="linea-selection-note-card linea-selection-explain-card">
+            <div className="linea-selection-note-kicker">
+              <Sparkles size={12} />
+              Explain selection
+            </div>
+            <div className="linea-selection-note-snippet">
+              {snippetText(explanationCard.selection.text, 140)}
+            </div>
+            {explanationCard.status === "loading" ? (
+              <div className="linea-selection-explain-state">
+                <LoaderCircle size={16} className="animate-spin" />
+                <span>Reading the passage and drafting an explanation…</span>
+              </div>
+            ) : explanationCard.status === "error" ? (
+              <div className="linea-selection-explain-error">
+                {explanationCard.error}
+              </div>
+            ) : (
+              <div className="linea-selection-explain-body">
+                {explanationCard.explanation}
+              </div>
+            )}
+            <div className="linea-selection-note-actions">
+              <button
+                type="button"
+                className="linea-btn-secondary linea-btn-icon"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  setExplanationCard(null);
+                }}
+              >
+                Close
+              </button>
+              {explanationCard.status === "done" ? (
+                <>
+                  <button
+                    type="button"
+                    className="linea-btn-secondary linea-btn-icon"
+                    onMouseDown={async (e) => {
+                      e.preventDefault();
+                      try {
+                        await navigator.clipboard.writeText(explanationCard.explanation);
+                      } catch {
+                        // Ignore clipboard failures here.
+                      }
+                    }}
+                  >
+                    <Copy size={12} /> Copy answer
+                  </button>
+                  <button
+                    type="button"
+                    className="linea-btn-secondary linea-btn-icon"
+                    onMouseDown={async (e) => {
+                      e.preventDefault();
+                      try {
+                        await navigator.clipboard.writeText(explanationCard.selection.text);
+                      } catch {
+                        // Ignore clipboard failures here.
+                      }
+                      window.open(buildResearchLink("chatgpt", explanationCard.selection.text), "_blank", "noopener,noreferrer");
+                    }}
+                  >
+                    <Sparkles size={12} /> ChatGPT
+                  </button>
+                  <button
+                    type="button"
+                    className="linea-btn-secondary linea-btn-icon"
+                    onMouseDown={async (e) => {
+                      e.preventDefault();
+                      try {
+                        await navigator.clipboard.writeText(explanationCard.selection.text);
+                      } catch {
+                        // Ignore clipboard failures here.
+                      }
+                      window.open(buildResearchLink("gemini", explanationCard.selection.text), "_blank", "noopener,noreferrer");
+                    }}
+                  >
+                    <Sparkles size={12} /> Gemini
+                  </button>
+                  <button
+                    type="button"
+                    className="linea-btn-secondary linea-btn-icon"
+                    onMouseDown={async (e) => {
+                      e.preventDefault();
+                      window.open(buildResearchLink("google", explanationCard.selection.text), "_blank", "noopener,noreferrer");
+                    }}
+                  >
+                    <ArrowRight size={12} /> Search web
+                  </button>
+                </>
+              ) : null}
+            </div>
+            {explanationCard.model ? (
+              <div className="linea-selection-explain-meta">
+                {[
+                  explanationCard.provider,
+                  explanationCard.model,
+                  explanationCard.usage
+                    ? `${formatCount(explanationCard.usage.inputTokens)} in · ${formatCount(explanationCard.usage.outputTokens)} out`
+                    : null,
+                ].filter(Boolean).join(" · ")}
+              </div>
+            ) : null}
+          </div>
+        </div>,
+        window.document.body,
+      )}
+
+      {noteComposer && createPortal(
+        <div
+          className="linea-selection-popover linea-selection-note-popover"
+          style={{
+            top: `${noteComposer.rect.top - 12}px`,
+            left: `${noteComposer.rect.left + noteComposer.rect.width / 2}px`,
+          }}
+        >
+          <div className="linea-selection-note-card">
+            <div className="linea-selection-note-kicker">
+              <NotebookPen size={12} />
+              Note on selection
+            </div>
+            <div className="linea-selection-note-snippet">
+              {snippetText(noteComposer.selection.text, 120)}
+            </div>
+            <textarea
+              value={noteComposer.value}
+              onChange={(event) => {
+                const value = event.target.value;
+                setNoteComposer((current) => (current ? { ...current, value } : current));
+              }}
+              rows={4}
+              className="linea-selection-note-input"
+              placeholder="Add a note about this passage..."
+              autoFocus
+            />
+            <div className="linea-selection-note-actions">
+              <button
+                type="button"
+                className="linea-btn-secondary linea-btn-icon"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  setNoteComposer(null);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="linea-btn linea-btn-icon"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onSaveSelectionNote(noteComposer.selection, noteComposer.value);
+                  closeSelectionUi();
+                }}
+              >
+                Save note
+              </button>
+            </div>
+          </div>
         </div>,
         window.document.body,
       )}
@@ -3253,6 +3779,7 @@ export function App({ initialDocument }: AppProps) {
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
   const [selectedPassage, setSelectedPassage] = useState<ReaderTextSelection | null>(null);
   const [selectedParagraphId, setSelectedParagraphId] = useState<string | null>(null);
+  const [annotations, setAnnotations] = useState<ReaderAnnotation[]>([]);
   const [expandPage, setExpandPage] = useState<number | null>(null);
   const [ocrByPage, setOcrByPage] = useState<
     Record<number, { state: "idle" | "probing" | "running" | "completed" | "empty" | "failed"; message?: string }>
@@ -3266,6 +3793,17 @@ export function App({ initialDocument }: AppProps) {
   const currentPage = useMemo(
     () => document?.pages.find((p) => p.pageNumber === selectedPage) ?? null,
     [document, selectedPage],
+  );
+  const annotationStorageKey = useMemo(
+    () => (document ? getDocumentAnnotationStorageKey(document) : null),
+    [document],
+  );
+  const currentPageAnnotations = useMemo(
+    () =>
+      currentPage
+        ? annotations.filter((annotation) => annotation.pageNumber === currentPage.pageNumber)
+        : [],
+    [annotations, currentPage],
   );
   const managedAccess = useLineaAccessSnapshot();
   const isReaderRoute = isReaderPath(browserLocation.pathname);
@@ -3310,6 +3848,10 @@ export function App({ initialDocument }: AppProps) {
     : "";
   const playbackBlockedLabel = getVoiceBlockedLabel(playbackBlockedReason);
   const selectionPlaybackLabel = isAnonymousPublicDemo ? "Play paragraph" : "Read selection";
+  const explainEnabled = managedAccess.snapshot.enabled
+    ? managedAccess.snapshot.access.status === "active"
+    : true;
+  const explainActionLabel = getExplainBlockedLabel(managedAccess.snapshot);
 
   const selectedParagraph = useMemo(
     () => currentPage?.paragraphs.find((paragraph) => paragraph.id === selectedParagraphId) ?? null,
@@ -3368,6 +3910,39 @@ export function App({ initialDocument }: AppProps) {
     if (typeof window === "undefined") return;
     window.localStorage.setItem("linea:reader-settings", JSON.stringify(settings));
   }, [settings]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (!annotationStorageKey) {
+      setAnnotations([]);
+      return;
+    }
+
+    const saved = window.localStorage.getItem(annotationStorageKey);
+    if (!saved) {
+      setAnnotations([]);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(saved) as ReaderAnnotation[];
+      setAnnotations(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      window.localStorage.removeItem(annotationStorageKey);
+      setAnnotations([]);
+    }
+  }, [annotationStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !annotationStorageKey) {
+      return;
+    }
+
+    window.localStorage.setItem(annotationStorageKey, JSON.stringify(annotations));
+  }, [annotationStorageKey, annotations]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -3601,6 +4176,93 @@ export function App({ initialDocument }: AppProps) {
     }
     voice.speakSelection(selectedPassage, currentPage);
   }, [voice, selectedPassage, currentPage, isAnonymousPublicDemo]);
+
+  const handleExplainSelection = useCallback(async (selection: ReaderTextSelection, page: ReaderPage) => {
+    const firstParagraph =
+      selection.paragraphIds.length > 0
+        ? page.paragraphs.find((entry) => selection.paragraphIds.includes(entry.id)) ?? null
+        : selection.paragraphId
+          ? page.paragraphs.find((entry) => entry.id === selection.paragraphId) ?? null
+          : null;
+
+    return fetchLineaExplanation({
+      text: selection.text,
+      contextText: firstParagraph?.text,
+      documentTitle: document?.fileName,
+      pageNumber: page.pageNumber,
+    });
+  }, [document?.fileName]);
+
+  const upsertAnnotation = useCallback((
+    selection: ReaderTextSelection,
+    update: { note?: string },
+  ) => {
+    if (!currentPage) {
+      return;
+    }
+
+    const range = resolveSelectionRange(selection, currentPage);
+    if (!range) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+
+    setAnnotations((current) => {
+      const index = current.findIndex(
+        (annotation) =>
+          annotation.pageNumber === currentPage.pageNumber &&
+          annotation.startCharIndex === range.startCharIndex &&
+          annotation.endCharIndex === range.endCharIndex,
+      );
+
+      if (index >= 0) {
+        const existing = current[index]!;
+        const next = [...current];
+        next[index] = {
+          ...existing,
+          text: selection.text,
+          note: update.note !== undefined ? update.note.trim() || undefined : existing.note,
+          updatedAt: now,
+        };
+        return next;
+      }
+
+      return [
+        ...current,
+        {
+          id: `${currentPage.pageNumber}:${range.startCharIndex}:${range.endCharIndex}`,
+          pageNumber: currentPage.pageNumber,
+          startCharIndex: range.startCharIndex,
+          endCharIndex: range.endCharIndex,
+          text: selection.text,
+          note: update.note?.trim() || undefined,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ];
+    });
+  }, [currentPage]);
+
+  const handleHighlightSelection = useCallback((selection: ReaderTextSelection) => {
+    upsertAnnotation(selection, {});
+  }, [upsertAnnotation]);
+
+  const handleSaveSelectionNote = useCallback((selection: ReaderTextSelection, note: string) => {
+    upsertAnnotation(selection, { note });
+  }, [upsertAnnotation]);
+
+  const handleCopySelection = useCallback(async (selection: ReaderTextSelection) => {
+    if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(selection.text);
+    } catch {
+      // Ignore clipboard failures and leave the selection intact.
+    }
+  }, []);
 
   const handlePlayPage = useCallback(() => {
     voice.speakPage(currentPage ?? undefined);
@@ -3912,6 +4574,8 @@ export function App({ initialDocument }: AppProps) {
                 selectedPage={selectedPage}
                 readerLayoutMode={readerLayoutMode}
                 settings={settings}
+                selectedPassage={selectedPassage}
+                annotations={currentPageAnnotations}
                 activeParagraphId={voice.activeParagraphId}
                 activeTokenRange={voice.activeTokenRange}
                 activePageNumber={voice.activePageNumber}
@@ -3927,6 +4591,12 @@ export function App({ initialDocument }: AppProps) {
                 onSeekToChar={voice.seekToCharIndex}
                 onPlayPage={handlePlayPage}
                 onReadSelection={handleReadSelection}
+                explainEnabled={explainEnabled}
+                explainActionLabel={explainActionLabel}
+                onExplainSelection={handleExplainSelection}
+                onHighlightSelection={handleHighlightSelection}
+                onSaveSelectionNote={handleSaveSelectionNote}
+                onCopySelection={handleCopySelection}
                 onRunOcr={() => void runOcrForPage(currentPage.pageNumber, true)}
                 ocrStatus={ocrByPage[currentPage.pageNumber] ?? null}
                 selectionPlaybackEnabled={selectionPlaybackEnabled}
@@ -3943,6 +4613,7 @@ export function App({ initialDocument }: AppProps) {
           document={document}
           page={currentPage}
           voice={voice}
+          annotations={currentPageAnnotations}
           selectedPassage={selectedPassage}
           selectedParagraph={selectedParagraph}
           selectedParagraphId={selectedParagraphId}
