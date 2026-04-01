@@ -93,6 +93,7 @@ async function loadSamplePages() {
         viewport.width,
         viewport.height,
         lines.join("\n"),
+        undefined,
       ),
     );
     page.cleanup();
@@ -119,7 +120,8 @@ async function main() {
   const vox = new VoxService();
   const cache = new VoxCache();
   const pages = await loadSamplePages();
-  const manifest = await readManifest();
+  const existingManifest = await readManifest();
+  const nextManifest: Record<string, VoxCacheEntry> = {};
   await fs.mkdir(seededAudioDir, { recursive: true });
 
   let seededCount = 0;
@@ -138,12 +140,13 @@ async function main() {
       text: playback.text,
     });
     const staticAudioPath = path.join(seededAudioDir, `${cacheKey}.mp3`);
-    const existingEntry = manifest[cacheKey];
+    const existingEntry = existingManifest[cacheKey];
 
     if (existingEntry?.alignment && existingEntry.audioUrl) {
       try {
         await fs.access(staticAudioPath);
         console.log(`Skipping Attention demo page ${page.pageNumber}/${pages.length} (already seeded).`);
+        nextManifest[cacheKey] = existingEntry;
         skippedCount += 1;
         continue;
       } catch {
@@ -188,7 +191,7 @@ async function main() {
       staticAudioPath,
     );
 
-    manifest[synthesis.cacheKey] = {
+    nextManifest[synthesis.cacheKey] = {
       ...cacheEntry,
       filePath: null,
       audioUrl: `/vox-cache/${synthesis.cacheKey}.mp3`,
@@ -200,12 +203,12 @@ async function main() {
         paragraphId: playback.firstParagraphId,
       },
     };
-    await writeManifest(manifest);
+    await writeManifest(nextManifest);
 
     seededCount += 1;
   }
 
-  await writeManifest(manifest);
+  await writeManifest(nextManifest);
   console.log(`Seeded ${seededCount} pages for ${SAMPLE_FILE}; skipped ${skippedCount} existing pages.`);
 }
 

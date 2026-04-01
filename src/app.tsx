@@ -952,10 +952,12 @@ function PdfThumbnail({
   doc,
   pageNumber,
   scale,
+  maskTopPercent = 0,
 }: {
   doc: PdfDocumentProxy | null;
   pageNumber: number;
   scale: number;
+  maskTopPercent?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -969,7 +971,26 @@ function PdfThumbnail({
     };
   }, [doc, pageNumber, scale]);
 
-  return <canvas ref={canvasRef} />;
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+      <canvas ref={canvasRef} />
+      {maskTopPercent > 0 ? (
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            insetInline: "6%",
+            top: "4.5%",
+            height: `${maskTopPercent}%`,
+            borderRadius: 10,
+            background:
+              "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(255,255,255,0.96) 75%, rgba(255,255,255,0.84) 100%)",
+            pointerEvents: "none",
+          }}
+        />
+      ) : null}
+    </div>
+  );
 }
 
 function PdfInlinePreview({
@@ -979,15 +1000,27 @@ function PdfInlinePreview({
   pageWidth,
   pageHeight,
   overlayRects,
+  interactiveRects,
   scale = 1.35,
+  maskTopPercent = 0,
 }: {
   doc: PdfDocumentProxy | null;
   pageNumber: number;
   imageDataUrl: string | null;
   pageWidth: number;
   pageHeight: number;
-  overlayRects?: Array<{ rect: ReaderRect; tone: "active" | "selected" }>;
+  overlayRects?: Array<{ rect: ReaderRect; tone: "active" | "selected" | "hovered" }>;
+  interactiveRects?: Array<{
+    id: string;
+    rect: ReaderRect;
+    active?: boolean;
+    selected?: boolean;
+    hovered?: boolean;
+    onClick: () => void;
+    onHover: (hovered: boolean) => void;
+  }>;
   scale?: number;
+  maskTopPercent?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -1038,6 +1071,21 @@ function PdfInlinePreview({
             }}
           />
         )}
+        {maskTopPercent > 0 ? (
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              insetInline: "12%",
+              top: "8.5%",
+              height: `${maskTopPercent}%`,
+              borderRadius: 14,
+              background:
+                "linear-gradient(180deg, rgba(255,255,255,0.985) 0%, rgba(255,255,255,0.975) 72%, rgba(255,255,255,0.82) 100%)",
+              pointerEvents: "none",
+            }}
+          />
+        ) : null}
         {overlayRects && overlayRects.length > 0 ? (
           <div className="linea-pdf-overlay-layer" aria-hidden="true">
             {overlayRects.map(({ rect, tone }, index) => (
@@ -1050,6 +1098,29 @@ function PdfInlinePreview({
                   width: `calc(${(rect.width / Math.max(pageWidth, 1)) * 100}% + 4px)`,
                   height: `calc(${(rect.height / Math.max(pageHeight, 1)) * 100}% + 4px)`,
                 }}
+              />
+            ))}
+          </div>
+        ) : null}
+        {interactiveRects && interactiveRects.length > 0 ? (
+          <div className="linea-pdf-hit-zone-layer" aria-label={`Page ${pageNumber} paragraph map`}>
+            {interactiveRects.map(({ id, rect, active, selected, hovered, onClick, onHover }) => (
+              <button
+                key={`${pageNumber}-${id}-${rect.x}-${rect.y}`}
+                type="button"
+                className={`linea-pdf-hit-zone${active ? " active" : ""}${selected ? " selected" : ""}${hovered ? " hovered" : ""}`}
+                style={{
+                  left: `calc(${(rect.x / Math.max(pageWidth, 1)) * 100}% - 2px)`,
+                  top: `calc(${(rect.y / Math.max(pageHeight, 1)) * 100}% - 2px)`,
+                  width: `calc(${(rect.width / Math.max(pageWidth, 1)) * 100}% + 4px)`,
+                  height: `calc(${(rect.height / Math.max(pageHeight, 1)) * 100}% + 4px)`,
+                }}
+                onMouseEnter={() => onHover(true)}
+                onMouseLeave={() => onHover(false)}
+                onFocus={() => onHover(true)}
+                onBlur={() => onHover(false)}
+                onClick={onClick}
+                aria-label="Focus matching paragraph"
               />
             ))}
           </div>
@@ -1233,6 +1304,11 @@ function PdfSidebar({
     );
   }
 
+  const isAttentionDemoDocument =
+    document.source?.url?.includes("attention-is-all-you-need.pdf") ||
+    document.source?.localPath?.includes("attention-is-all-you-need.pdf") ||
+    document.fileName.toLowerCase().includes("attention is all you need");
+
   return (
     <nav className="linea-pdf-sidebar">
       <div className="pdf-sidebar-header">
@@ -1292,7 +1368,12 @@ function PdfSidebar({
               </div>
 
               <div className="pdf-thumbnail-frame">
-                <PdfThumbnail doc={doc} pageNumber={page.pageNumber} scale={0.22} />
+                <PdfThumbnail
+                  doc={doc}
+                  pageNumber={page.pageNumber}
+                  scale={0.22}
+                  maskTopPercent={isAttentionDemoDocument && page.pageNumber === 1 ? 12 : 0}
+                />
               </div>
 
               <div className="pdf-thumbnail-meta">
@@ -1451,13 +1532,20 @@ type ReaderTextSelection = {
   endCharIndex: number | null;
 };
 
-type ReaderAnnotation = {
+type ReaderMarginaliaKind = "highlight" | "note" | "explanation";
+
+type ReaderMarginalia = {
   id: string;
+  kind: ReaderMarginaliaKind;
   pageNumber: number;
   startCharIndex: number;
   endCharIndex: number;
   text: string;
   note?: string;
+  explanation?: string;
+  provider?: "groq" | "openai" | null;
+  model?: string | null;
+  usage?: LineaExplainResponse["usage"] | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -1468,7 +1556,7 @@ function getDocumentAnnotationStorageKey(document: ReaderDocument) {
     document.source?.localPath ??
     `${document.fileName}:${document.pageCount}`;
 
-  return `linea:annotations:${sourceKey}`;
+  return `linea:marginalia:${sourceKey}`;
 }
 
 function resolveSelectionRange(selection: ReaderTextSelection, page: ReaderPage) {
@@ -1518,6 +1606,51 @@ function buildResearchLink(provider: "chatgpt" | "gemini" | "google", text: stri
   return `https://www.google.com/search?q=${encodeURIComponent(text)}`;
 }
 
+function getMarginaliaIcon(kind: ReaderMarginaliaKind) {
+  if (kind === "note") {
+    return NotebookPen;
+  }
+
+  if (kind === "explanation") {
+    return Sparkles;
+  }
+
+  return Highlighter;
+}
+
+function getMarginaliaLabel(kind: ReaderMarginaliaKind) {
+  if (kind === "note") {
+    return "Note";
+  }
+
+  if (kind === "explanation") {
+    return "Explained";
+  }
+
+  return "Highlight";
+}
+
+function getMarginaliaBody(entry: ReaderMarginalia) {
+  if (entry.kind === "note") {
+    return entry.note?.trim() || entry.text;
+  }
+
+  if (entry.kind === "explanation") {
+    return entry.explanation?.trim() || entry.text;
+  }
+
+  return entry.text;
+}
+
+function shouldHideParagraphFromOutline(paragraph: ReaderParagraph, pageTitle: string) {
+  if (paragraph.text.trim() === pageTitle.trim()) {
+    return true;
+  }
+
+  const skipReason = paragraph.skip?.reason;
+  return skipReason === "references" || skipReason === "metadata" || skipReason === "toc";
+}
+
 function getExplainBlockedLabel(snapshot: LineaManagedAccessSnapshot) {
   if (!snapshot.enabled) {
     return "Explain selection";
@@ -1546,28 +1679,32 @@ function ContextPanel({
   document,
   page,
   voice,
-  annotations,
+  marginalia,
   selectedPassage,
   selectedParagraph,
   selectedParagraphId,
+  selectedMarginaliaId,
   selectedPage,
   onPlayPage,
   playPageEnabled,
   playPageLabel,
   onSelectParagraph,
+  onSelectMarginalia,
 }: {
   document: ReaderDocument;
   page: ReaderPage;
   voice: ReturnType<typeof useVoiceConsole>;
-  annotations: ReaderAnnotation[];
+  marginalia: ReaderMarginalia[];
   selectedPassage: ReaderTextSelection | null;
   selectedParagraph: ReaderParagraph | null;
   selectedParagraphId: string | null;
+  selectedMarginaliaId: string | null;
   selectedPage: number;
   onPlayPage: () => void;
   playPageEnabled: boolean;
   playPageLabel: string;
   onSelectParagraph: (id: string | null) => void;
+  onSelectMarginalia: (id: string | null) => void;
 }) {
   const activeParagraph = useMemo(
     () => voice.activeParagraphId
@@ -1579,7 +1716,7 @@ function ContextPanel({
   const isPlaying = voice.isSpeaking || voice.isPaused || voice.activity.phase === "requesting";
 
   const visibleParagraphs = useMemo(
-    () => page.paragraphs.filter((p) => p.text.trim() !== page.title.trim()),
+    () => page.paragraphs.filter((p) => !shouldHideParagraphFromOutline(p, page.title)),
     [page.paragraphs, page.title],
   );
   const selectedTextParagraphIds = useMemo(
@@ -1587,9 +1724,25 @@ function ContextPanel({
     [selectedPassage],
   );
   const isPlaybackRangeVisible = voice.playbackRangePageNumber === page.pageNumber;
-  const visibleAnnotations = useMemo(
-    () => [...annotations].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)).slice(0, 6),
-    [annotations],
+  const [marginaliaFilter, setMarginaliaFilter] = useState<"all" | ReaderMarginaliaKind>("all");
+  const filteredMarginalia = useMemo(
+    () =>
+      [...marginalia]
+        .filter((entry) => marginaliaFilter === "all" || entry.kind === marginaliaFilter)
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
+    [marginalia, marginaliaFilter],
+  );
+  const selectedMarginalia = useMemo(
+    () => filteredMarginalia.find((entry) => entry.id === selectedMarginaliaId) ?? null,
+    [filteredMarginalia, selectedMarginaliaId],
+  );
+  const focusedMarginalia = selectedMarginalia ?? filteredMarginalia[0] ?? null;
+  const visibleMarginalia = useMemo(
+    () =>
+      filteredMarginalia
+        .filter((entry) => entry.id !== focusedMarginalia?.id)
+        .slice(0, 8),
+    [filteredMarginalia, focusedMarginalia?.id],
   );
 
   return (
@@ -1676,26 +1829,58 @@ function ContextPanel({
         </div>
       )}
 
-      {visibleAnnotations.length > 0 && (
+      {marginalia.length > 0 && (
         <div className="linea-panel-section">
-          <span className="linea-panel-label">
-            Notes &amp; highlights · {annotations.length}
-          </span>
+          <div className="context-section-header">
+            <span className="linea-panel-label">
+              Marginalia · {filteredMarginalia.length}
+            </span>
+            <div className="context-filter-row">
+              {(["all", "highlight", "note", "explanation"] as const).map((entry) => (
+                <button
+                  key={entry}
+                  type="button"
+                  className={`context-filter-chip${marginaliaFilter === entry ? " active" : ""}`}
+                  onClick={() => setMarginaliaFilter(entry)}
+                >
+                  {entry === "all" ? "All" : getMarginaliaLabel(entry)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {focusedMarginalia ? (
+            <div className={`context-marginalia-focus kind-${focusedMarginalia.kind}`}>
+              <div className="context-marginalia-focus-top">
+                <span className="context-marginalia-focus-label">
+                  {getMarginaliaLabel(focusedMarginalia.kind)}
+                </span>
+                <span className="context-marginalia-focus-meta">
+                  {snippetText(focusedMarginalia.text, 36)}
+                </span>
+              </div>
+              <div className="context-marginalia-focus-body">
+                {getMarginaliaBody(focusedMarginalia)}
+              </div>
+            </div>
+          ) : null}
+
           <div className="context-annotation-list">
-            {visibleAnnotations.map((annotation) => {
+            {visibleMarginalia.map((entry) => {
               const paragraph = page.paragraphs.find(
-                (entry) =>
-                  annotation.endCharIndex > entry.start &&
-                  annotation.startCharIndex < entry.end,
+                (paragraph) =>
+                  entry.endCharIndex > paragraph.start &&
+                  entry.startCharIndex < paragraph.end,
               );
-              const isNote = Boolean(annotation.note?.trim());
+              const Icon = getMarginaliaIcon(entry.kind);
 
               return (
                 <button
-                  key={annotation.id}
+                  key={entry.id}
                   type="button"
-                  className={`context-annotation-item${isNote ? " is-note" : ""}`}
+                  className={`context-annotation-item kind-${entry.kind}${selectedMarginaliaId === entry.id ? " active" : ""}`}
                   onClick={() => {
+                    onSelectMarginalia(selectedMarginaliaId === entry.id ? null : entry.id);
                     if (paragraph) {
                       onSelectParagraph(paragraph.id);
                       const el = window.document.querySelector(`[data-paragraph-id="${paragraph.id}"]`);
@@ -1705,14 +1890,15 @@ function ContextPanel({
                 >
                   <div className="context-annotation-top">
                     <span className="context-annotation-kind">
-                      {isNote ? "Note" : "Highlight"}
+                      <Icon size={12} />
+                      {getMarginaliaLabel(entry.kind)}
                     </span>
                     <span className="context-annotation-meta">
-                      {snippetText(annotation.text, 34)}
+                      {snippetText(entry.text, 34)}
                     </span>
                   </div>
                   <div className="context-annotation-body">
-                    {isNote ? annotation.note : annotation.text}
+                    {getMarginaliaBody(entry)}
                   </div>
                 </button>
               );
@@ -1737,7 +1923,7 @@ function ContextPanel({
               <button
                 key={p.id}
                 type="button"
-                className={`context-outline-item${isActive ? " active" : ""}${isPositioned ? " positioned" : ""}${isTextSelected ? " text-selected" : ""}${playbackState ? ` playback-${playbackState}` : ""}${p.skip ? " dimmed" : ""}`}
+                className={`context-outline-item${isActive ? " active" : ""}${isPositioned ? " positioned" : ""}${isTextSelected ? " text-selected" : ""}${playbackState ? ` playback-${playbackState}` : ""}${p.skip ? " dimmed" : ""}${p.skip?.reason ? ` kind-${p.skip.reason}` : ""}`}
                 onClick={() => {
                   onSelectParagraph(selectedParagraphId === p.id ? null : p.id);
                   const el = window.document.querySelector(`[data-paragraph-id="${p.id}"]`);
@@ -1749,7 +1935,7 @@ function ContextPanel({
                   className={`context-outline-marker${playbackState ? ` ${playbackState}` : ""}`}
                 />
                 <span className="context-outline-num">{i + 1}</span>
-                <span className="context-outline-text">{p.skip ? `${p.skip.reason} · ${snippetText(p.text, 36)}` : snippetText(p.text, 50)}</span>
+                <span className="context-outline-text">{snippetText(p.text, p.skip?.reason === "footnote" ? 42 : 50)}</span>
                 <span className="context-outline-wc">{wc}</span>
               </button>
             );
@@ -2974,7 +3160,8 @@ function ReaderPanel({
   readerLayoutMode,
   settings,
   selectedPassage,
-  annotations,
+  marginalia,
+  selectedMarginaliaId,
   activeParagraphId,
   activeTokenRange,
   activePageNumber,
@@ -2986,6 +3173,7 @@ function ReaderPanel({
   isAudioActive,
   onSelectPage,
   onSelectParagraph,
+  onSelectMarginalia,
   onSelectText,
   onSeekToChar,
   onPlayPage,
@@ -2993,8 +3181,7 @@ function ReaderPanel({
   explainEnabled,
   explainActionLabel,
   onExplainSelection,
-  onHighlightSelection,
-  onSaveSelectionNote,
+  onSaveMarginalia,
   onCopySelection,
   onRunOcr,
   ocrStatus,
@@ -3011,7 +3198,8 @@ function ReaderPanel({
   readerLayoutMode: ReaderLayoutMode;
   settings: ReaderSettings;
   selectedPassage: ReaderTextSelection | null;
-  annotations: ReaderAnnotation[];
+  marginalia: ReaderMarginalia[];
+  selectedMarginaliaId: string | null;
   activeParagraphId: string | null;
   activeTokenRange: { start: number; end: number } | null;
   activePageNumber: number | null;
@@ -3023,6 +3211,7 @@ function ReaderPanel({
   isAudioActive: boolean;
   onSelectPage: (page: number) => void;
   onSelectParagraph: (paragraphId: string | null) => void;
+  onSelectMarginalia: (id: string | null) => void;
   onSelectText: (selection: ReaderTextSelection | null) => void;
   onSeekToChar: (charIndex: number) => void;
   onPlayPage: () => void;
@@ -3030,8 +3219,13 @@ function ReaderPanel({
   explainEnabled: boolean;
   explainActionLabel: string;
   onExplainSelection: (selection: ReaderTextSelection, page: ReaderPage) => Promise<LineaExplainResponse>;
-  onHighlightSelection: (selection: ReaderTextSelection) => void;
-  onSaveSelectionNote: (selection: ReaderTextSelection, note: string) => void;
+  onSaveMarginalia: (
+    selection: ReaderTextSelection,
+    update:
+      | { kind: "highlight" }
+      | { kind: "note"; note: string }
+      | { kind: "explanation"; explanation: LineaExplainResponse },
+  ) => ReaderMarginalia | null;
   onCopySelection: (selection: ReaderTextSelection) => void;
   onRunOcr: () => void;
   ocrStatus: {
@@ -3063,6 +3257,7 @@ function ReaderPanel({
     usage: LineaExplainResponse["usage"] | null;
   } | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "done">("idle");
+  const [hoveredParagraphId, setHoveredParagraphId] = useState<string | null>(null);
   const isPlaybackRangeVisible = playbackRangePageNumber === page.pageNumber;
   const showSplitView = readerLayoutMode === "split" && Boolean(pdfDoc);
   const shouldShowPdfSource =
@@ -3075,10 +3270,16 @@ function ReaderPanel({
   useEffect(() => {
     onSelectText(null);
     onSelectParagraph(null);
+    setHoveredParagraphId(null);
     setSelectionRect(null);
     setNoteComposer(null);
     setExplanationCard(null);
   }, [onSelectParagraph, onSelectText, page.pageNumber]);
+
+  const scrollParagraphIntoView = useCallback((paragraphId: string, behavior: ScrollBehavior = "smooth") => {
+    const el = articleRef.current?.querySelector<HTMLElement>(`[data-paragraph-id="${paragraphId}"]`);
+    el?.scrollIntoView({ behavior, block: "center" });
+  }, []);
 
   const handleSelection = () => {
     const sel = window.getSelection();
@@ -3197,7 +3398,10 @@ function ReaderPanel({
   const annotationRangesByParagraphId = useMemo(() => {
     const map: Record<string, Array<{ start: number; end: number; tone: "highlight" | "note" }>> = {};
 
-    for (const annotation of annotations) {
+    for (const annotation of marginalia) {
+      if (annotation.kind === "explanation") {
+        continue;
+      }
       for (const paragraph of page.paragraphs) {
         if (annotation.endCharIndex <= paragraph.start || annotation.startCharIndex >= paragraph.end) {
           continue;
@@ -3213,13 +3417,13 @@ function ReaderPanel({
         map[paragraph.id]!.push({
           start: localStart,
           end: localEnd,
-          tone: annotation.note?.trim() ? "note" : "highlight",
+          tone: annotation.kind === "note" ? "note" : "highlight",
         });
       }
     }
 
     return map;
-  }, [annotations, page.paragraphs]);
+  }, [marginalia, page.paragraphs]);
 
   const existingSelectionAnnotation = useMemo(() => {
     if (!selectedPassage) {
@@ -3231,13 +3435,35 @@ function ReaderPanel({
       return null;
     }
 
-    return annotations.find(
+    return marginalia.find(
       (annotation) =>
         annotation.pageNumber === page.pageNumber &&
         annotation.startCharIndex === range.startCharIndex &&
-        annotation.endCharIndex === range.endCharIndex,
+        annotation.endCharIndex === range.endCharIndex &&
+        annotation.kind !== "explanation"
     ) ?? null;
-  }, [annotations, page, selectedPassage]);
+  }, [marginalia, page, selectedPassage]);
+
+  const marginaliaByParagraphId = useMemo(() => {
+    const map: Record<string, ReaderMarginalia[]> = {};
+
+    for (const entry of marginalia) {
+      for (const paragraph of page.paragraphs) {
+        if (entry.endCharIndex <= paragraph.start || entry.startCharIndex >= paragraph.end) {
+          continue;
+        }
+
+        map[paragraph.id] ??= [];
+        map[paragraph.id]!.push(entry);
+      }
+    }
+
+    for (const key of Object.keys(map)) {
+      map[key]!.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+    }
+
+    return map;
+  }, [marginalia, page.paragraphs]);
 
   const closeSelectionUi = useCallback(() => {
     clearBrowserSelection();
@@ -3252,28 +3478,86 @@ function ReaderPanel({
       isAudioActive && activePageNumber === page.pageNumber
         ? page.paragraphs.find((paragraph) => paragraph.id === activeParagraphId) ?? null
         : null;
+    const hoveredParagraph =
+      hoveredParagraphId
+        ? page.paragraphs.find((paragraph) => paragraph.id === hoveredParagraphId) ?? null
+        : null;
     const selectedParagraph =
-      !activeParagraph && selectedParagraphId
+      !activeParagraph && !hoveredParagraph && selectedParagraphId
         ? page.paragraphs.find((paragraph) => paragraph.id === selectedParagraphId) ?? null
         : null;
-    const target = activeParagraph ?? selectedParagraph;
-    if (!target?.boxes?.length) {
-      return [];
+    const overlays: Array<{ rect: ReaderRect; tone: "active" | "selected" | "hovered" }> = [];
+
+    if (selectedParagraph?.boxes?.length) {
+      overlays.push(...selectedParagraph.boxes.map((rect) => ({ rect, tone: "selected" as const })));
     }
 
-    const tone = activeParagraph ? "active" : "selected";
-    return target.boxes.map((rect) => ({ rect, tone })) satisfies Array<{
-      rect: ReaderRect;
-      tone: "active" | "selected";
-    }>;
+    if (hoveredParagraph?.boxes?.length) {
+      overlays.push(...hoveredParagraph.boxes.map((rect) => ({ rect, tone: "hovered" as const })));
+    }
+
+    if (activeParagraph?.boxes?.length) {
+      overlays.push(...activeParagraph.boxes.map((rect) => ({ rect, tone: "active" as const })));
+    }
+
+    return overlays;
   }, [
     activePageNumber,
     activeParagraphId,
+    hoveredParagraphId,
     isAudioActive,
     page.pageNumber,
     page.paragraphs,
     selectedParagraphId,
   ]);
+  const sourceInteractiveRects = useMemo(
+    () =>
+      page.paragraphs
+        .filter((paragraph) => paragraph.text.trim() !== page.title.trim() && Boolean(paragraph.boxes?.length))
+        .flatMap((paragraph) =>
+          (paragraph.boxes ?? []).map((rect) => ({
+            id: paragraph.id,
+            rect,
+            active:
+              isAudioActive &&
+              activePageNumber === page.pageNumber &&
+              activeParagraphId === paragraph.id,
+            selected: selectedParagraphId === paragraph.id,
+            hovered: hoveredParagraphId === paragraph.id,
+            onClick: () => {
+              clearBrowserSelection();
+              onSelectText(null);
+              setSelectionRect(null);
+              setNoteComposer(null);
+              setExplanationCard(null);
+              setHoveredParagraphId(paragraph.id);
+              onSelectParagraph(paragraph.id);
+              scrollParagraphIntoView(paragraph.id);
+            },
+            onHover: (hovered: boolean) => {
+              setHoveredParagraphId((current) => (hovered ? paragraph.id : current === paragraph.id ? null : current));
+            },
+          })),
+        ),
+    [
+      activePageNumber,
+      activeParagraphId,
+      hoveredParagraphId,
+      isAudioActive,
+      onSelectParagraph,
+      onSelectText,
+      page.pageNumber,
+      page.paragraphs,
+      page.title,
+      scrollParagraphIntoView,
+      selectedParagraphId,
+    ],
+  );
+  const isAttentionDemoDocument =
+    document.source?.url?.includes("attention-is-all-you-need.pdf") ||
+    document.source?.localPath?.includes("attention-is-all-you-need.pdf") ||
+    document.fileName.toLowerCase().includes("attention is all you need");
+  const shouldMaskAttentionDemoBanner = isAttentionDemoDocument && page.pageNumber === 1;
 
   const sourcePane = (
     <div className={`linea-reader-source${showSplitView ? " split" : ""}`}>
@@ -3302,7 +3586,9 @@ function ReaderPanel({
         pageWidth={page.width}
         pageHeight={page.height}
         overlayRects={sourceOverlayRects}
+        interactiveRects={sourceInteractiveRects}
         scale={showSplitView ? 1.7 : 1.35}
+        maskTopPercent={shouldMaskAttentionDemoBanner ? 11 : 0}
       />
     </div>
   );
@@ -3344,50 +3630,82 @@ function ReaderPanel({
                   end: Math.min(paragraph.text.length, activeTokenRange.end - paragraph.start),
                 }
               : null;
+          const paragraphMarginalia = marginaliaByParagraphId[paragraph.id] ?? [];
+          const skipReasonClass = paragraph.skip?.reason ? ` skip-${paragraph.skip.reason}` : "";
 
           return (
             <div
               key={paragraph.id}
-              role="button"
-              tabIndex={0}
-              data-paragraph-id={paragraph.id}
-              onClick={(e) => {
-                const sel = window.getSelection()?.toString().trim();
-                if (sel) return;
-
-                if (isAudioActive && activePageNumber === page.pageNumber) {
-                  const target = e.target as HTMLElement;
-                  const charOffset = target.dataset.charOffset;
-                  if (charOffset != null) {
-                    onSeekToChar(paragraph.start + Number(charOffset));
-                  } else {
-                    onSeekToChar(paragraph.start);
-                  }
-                  return;
-                }
-
-                onSelectParagraph(selectedParagraphId === paragraph.id ? null : paragraph.id);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  onSelectParagraph(selectedParagraphId === paragraph.id ? null : paragraph.id);
-                }
-              }}
-              className={`linea-paragraph${isActivePlaybackParagraph ? " active" : ""}${selectedParagraphId === paragraph.id ? " positioned" : ""}${paragraph.skip ? " skipped" : ""}${playbackState ? ` playback-${playbackState}` : ""}${playbackRangeStartParagraphId === paragraph.id ? " playback-range-start" : ""}${playbackRangeEndParagraphId === paragraph.id ? " playback-range-end" : ""}${isActivePlaybackParagraph ? ` ${readerTheme.activeParagraphClass}` : ""}`}
+              className={`linea-reading-row${paragraphMarginalia.length > 0 ? " has-marginalia" : ""}`}
             >
-              {playbackState ? (
-                <span
-                  aria-hidden="true"
-                  className={`linea-playback-rail ${playbackState}${playbackRangeStartParagraphId === paragraph.id ? " range-start" : ""}${playbackRangeEndParagraphId === paragraph.id ? " range-end" : ""}`}
-                />
-              ) : null}
-              <span className="linea-paragraph-text">
-                {renderParagraphText(paragraph, {
-                  highlightRange: activeHighlightRange,
-                  annotationRanges: annotationRangesByParagraphId[paragraph.id] ?? [],
+              <div
+                role="button"
+                tabIndex={0}
+                data-paragraph-id={paragraph.id}
+                onClick={(e) => {
+                  const sel = window.getSelection()?.toString().trim();
+                  if (sel) return;
+
+                  if (isAudioActive && activePageNumber === page.pageNumber) {
+                    const target = e.target as HTMLElement;
+                    const charOffset = target.dataset.charOffset;
+                    if (charOffset != null) {
+                      onSeekToChar(paragraph.start + Number(charOffset));
+                    } else {
+                      onSeekToChar(paragraph.start);
+                    }
+                    return;
+                  }
+
+                  onSelectParagraph(selectedParagraphId === paragraph.id ? null : paragraph.id);
+                }}
+                onMouseEnter={() => setHoveredParagraphId(paragraph.id)}
+                onMouseLeave={() => setHoveredParagraphId((current) => (current === paragraph.id ? null : current))}
+                onFocus={() => setHoveredParagraphId(paragraph.id)}
+                onBlur={() => setHoveredParagraphId((current) => (current === paragraph.id ? null : current))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onSelectParagraph(selectedParagraphId === paragraph.id ? null : paragraph.id);
+                  }
+                }}
+                className={`linea-paragraph${isActivePlaybackParagraph ? " active" : ""}${selectedParagraphId === paragraph.id ? " positioned" : ""}${hoveredParagraphId === paragraph.id ? " hovered" : ""}${paragraph.skip ? " skipped" : ""}${skipReasonClass}${playbackState ? ` playback-${playbackState}` : ""}${playbackRangeStartParagraphId === paragraph.id ? " playback-range-start" : ""}${playbackRangeEndParagraphId === paragraph.id ? " playback-range-end" : ""}${isActivePlaybackParagraph ? ` ${readerTheme.activeParagraphClass}` : ""}`}
+              >
+                {playbackState ? (
+                  <span
+                    aria-hidden="true"
+                    className={`linea-playback-rail ${playbackState}${playbackRangeStartParagraphId === paragraph.id ? " range-start" : ""}${playbackRangeEndParagraphId === paragraph.id ? " range-end" : ""}`}
+                  />
+                ) : null}
+                <span className="linea-paragraph-text">
+                  {renderParagraphText(paragraph, {
+                    highlightRange: activeHighlightRange,
+                    annotationRanges: annotationRangesByParagraphId[paragraph.id] ?? [],
+                  })}
+                </span>
+              </div>
+              <div className="linea-marginalia-rail" aria-label="Marginalia markers">
+                {paragraphMarginalia.map((entry) => {
+                  const Icon = getMarginaliaIcon(entry.kind);
+                  const isSelected = selectedMarginaliaId === entry.id;
+                  return (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      className={`linea-marginalia-marker kind-${entry.kind}${isSelected ? " active" : ""}`}
+                      title={`${getMarginaliaLabel(entry.kind)} · ${snippetText(entry.text, 50)}`}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onSelectMarginalia(isSelected ? null : entry.id);
+                        onSelectParagraph(paragraph.id);
+                      }}
+                    >
+                      <Icon size={12} />
+                    </button>
+                  );
                 })}
-              </span>
+              </div>
             </div>
           );
         })}
@@ -3500,6 +3818,16 @@ function ReaderPanel({
                       usage: result.usage,
                     };
                   });
+                  const saved = onSaveMarginalia(selectedPassage, {
+                    kind: "explanation",
+                    explanation: result,
+                  });
+                  if (saved) {
+                    onSelectMarginalia(saved.id);
+                    setExplanationCard(null);
+                    clearBrowserSelection();
+                    onSelectText(null);
+                  }
                 } catch (error) {
                   setExplanationCard((current) => {
                     if (!current) {
@@ -3526,7 +3854,10 @@ function ReaderPanel({
               className={`linea-selection-popover-btn${existingSelectionAnnotation ? " active" : ""}`}
               onMouseDown={(e) => {
                 e.preventDefault();
-                onHighlightSelection(selectedPassage);
+                const saved = onSaveMarginalia(selectedPassage, { kind: "highlight" });
+                if (saved) {
+                  onSelectMarginalia(saved.id);
+                }
                 closeSelectionUi();
               }}
             >
@@ -3723,7 +4054,13 @@ function ReaderPanel({
                 className="linea-btn linea-btn-icon"
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  onSaveSelectionNote(noteComposer.selection, noteComposer.value);
+                  const saved = onSaveMarginalia(noteComposer.selection, {
+                    kind: "note",
+                    note: noteComposer.value,
+                  });
+                  if (saved) {
+                    onSelectMarginalia(saved.id);
+                  }
                   closeSelectionUi();
                 }}
               >
@@ -3779,7 +4116,8 @@ export function App({ initialDocument }: AppProps) {
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
   const [selectedPassage, setSelectedPassage] = useState<ReaderTextSelection | null>(null);
   const [selectedParagraphId, setSelectedParagraphId] = useState<string | null>(null);
-  const [annotations, setAnnotations] = useState<ReaderAnnotation[]>([]);
+  const [selectedMarginaliaId, setSelectedMarginaliaId] = useState<string | null>(null);
+  const [marginalia, setMarginalia] = useState<ReaderMarginalia[]>([]);
   const [expandPage, setExpandPage] = useState<number | null>(null);
   const [ocrByPage, setOcrByPage] = useState<
     Record<number, { state: "idle" | "probing" | "running" | "completed" | "empty" | "failed"; message?: string }>
@@ -3794,16 +4132,16 @@ export function App({ initialDocument }: AppProps) {
     () => document?.pages.find((p) => p.pageNumber === selectedPage) ?? null,
     [document, selectedPage],
   );
-  const annotationStorageKey = useMemo(
+  const marginaliaStorageKey = useMemo(
     () => (document ? getDocumentAnnotationStorageKey(document) : null),
     [document],
   );
-  const currentPageAnnotations = useMemo(
+  const currentPageMarginalia = useMemo(
     () =>
       currentPage
-        ? annotations.filter((annotation) => annotation.pageNumber === currentPage.pageNumber)
+        ? marginalia.filter((entry) => entry.pageNumber === currentPage.pageNumber)
         : [],
-    [annotations, currentPage],
+    [marginalia, currentPage],
   );
   const managedAccess = useLineaAccessSnapshot();
   const isReaderRoute = isReaderPath(browserLocation.pathname);
@@ -3885,6 +4223,7 @@ export function App({ initialDocument }: AppProps) {
     setPdfData(null);
     setSelectedPage(1);
     setSelectedParagraphId(null);
+    setSelectedMarginaliaId(null);
     setSelectedPassage(null);
     setExpandPage(null);
     setLoading(false);
@@ -3916,33 +4255,44 @@ export function App({ initialDocument }: AppProps) {
       return;
     }
 
-    if (!annotationStorageKey) {
-      setAnnotations([]);
+    if (!marginaliaStorageKey) {
+      setMarginalia([]);
       return;
     }
 
-    const saved = window.localStorage.getItem(annotationStorageKey);
+    const saved = window.localStorage.getItem(marginaliaStorageKey);
     if (!saved) {
-      setAnnotations([]);
+      setMarginalia([]);
       return;
     }
 
     try {
-      const parsed = JSON.parse(saved) as ReaderAnnotation[];
-      setAnnotations(Array.isArray(parsed) ? parsed : []);
+      const parsed = JSON.parse(saved) as ReaderMarginalia[];
+      setMarginalia(Array.isArray(parsed) ? parsed : []);
     } catch {
-      window.localStorage.removeItem(annotationStorageKey);
-      setAnnotations([]);
+      window.localStorage.removeItem(marginaliaStorageKey);
+      setMarginalia([]);
     }
-  }, [annotationStorageKey]);
+  }, [marginaliaStorageKey]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !annotationStorageKey) {
+    if (typeof window === "undefined" || !marginaliaStorageKey) {
       return;
     }
 
-    window.localStorage.setItem(annotationStorageKey, JSON.stringify(annotations));
-  }, [annotationStorageKey, annotations]);
+    window.localStorage.setItem(marginaliaStorageKey, JSON.stringify(marginalia));
+  }, [marginaliaStorageKey, marginalia]);
+
+  useEffect(() => {
+    if (!selectedMarginaliaId) {
+      return;
+    }
+
+    const stillVisible = currentPageMarginalia.some((entry) => entry.id === selectedMarginaliaId);
+    if (!stillVisible) {
+      setSelectedMarginaliaId(null);
+    }
+  }, [currentPageMarginalia, selectedMarginaliaId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -4193,64 +4543,88 @@ export function App({ initialDocument }: AppProps) {
     });
   }, [document?.fileName]);
 
-  const upsertAnnotation = useCallback((
+  const upsertMarginalia = useCallback((
     selection: ReaderTextSelection,
-    update: { note?: string },
+    update:
+      | { kind: "highlight" }
+      | { kind: "note"; note: string }
+      | { kind: "explanation"; explanation: LineaExplainResponse },
   ) => {
     if (!currentPage) {
-      return;
+      return null;
     }
 
     const range = resolveSelectionRange(selection, currentPage);
     if (!range) {
-      return;
+      return null;
     }
 
     const now = new Date().toISOString();
+    const nextId = `${update.kind}:${currentPage.pageNumber}:${range.startCharIndex}:${range.endCharIndex}`;
+    let savedEntry: ReaderMarginalia | null = null;
 
-    setAnnotations((current) => {
+    setMarginalia((current) => {
       const index = current.findIndex(
-        (annotation) =>
-          annotation.pageNumber === currentPage.pageNumber &&
-          annotation.startCharIndex === range.startCharIndex &&
-          annotation.endCharIndex === range.endCharIndex,
+        (entry) => entry.id === nextId,
       );
 
       if (index >= 0) {
         const existing = current[index]!;
         const next = [...current];
-        next[index] = {
+        const merged: ReaderMarginalia = {
           ...existing,
+          kind: update.kind,
           text: selection.text,
-          note: update.note !== undefined ? update.note.trim() || undefined : existing.note,
+          note:
+            update.kind === "note"
+              ? update.note.trim() || undefined
+              : update.kind === "highlight"
+                ? undefined
+                : existing.note,
+          explanation:
+            update.kind === "explanation"
+              ? update.explanation.explanation
+              : existing.explanation,
+          provider:
+            update.kind === "explanation"
+              ? update.explanation.provider
+              : existing.provider ?? null,
+          model:
+            update.kind === "explanation"
+              ? update.explanation.model
+              : existing.model ?? null,
+          usage:
+            update.kind === "explanation"
+              ? update.explanation.usage
+              : existing.usage ?? null,
           updatedAt: now,
         };
+        next[index] = merged;
+        savedEntry = merged;
         return next;
       }
 
-      return [
-        ...current,
-        {
-          id: `${currentPage.pageNumber}:${range.startCharIndex}:${range.endCharIndex}`,
-          pageNumber: currentPage.pageNumber,
-          startCharIndex: range.startCharIndex,
-          endCharIndex: range.endCharIndex,
-          text: selection.text,
-          note: update.note?.trim() || undefined,
-          createdAt: now,
-          updatedAt: now,
-        },
-      ];
+      const created: ReaderMarginalia = {
+        id: nextId,
+        kind: update.kind,
+        pageNumber: currentPage.pageNumber,
+        startCharIndex: range.startCharIndex,
+        endCharIndex: range.endCharIndex,
+        text: selection.text,
+        note: update.kind === "note" ? update.note.trim() || undefined : undefined,
+        explanation: update.kind === "explanation" ? update.explanation.explanation : undefined,
+        provider: update.kind === "explanation" ? update.explanation.provider : null,
+        model: update.kind === "explanation" ? update.explanation.model : null,
+        usage: update.kind === "explanation" ? update.explanation.usage : null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      savedEntry = created;
+      return [...current, created];
     });
+
+    return savedEntry;
   }, [currentPage]);
-
-  const handleHighlightSelection = useCallback((selection: ReaderTextSelection) => {
-    upsertAnnotation(selection, {});
-  }, [upsertAnnotation]);
-
-  const handleSaveSelectionNote = useCallback((selection: ReaderTextSelection, note: string) => {
-    upsertAnnotation(selection, { note });
-  }, [upsertAnnotation]);
 
   const handleCopySelection = useCallback(async (selection: ReaderTextSelection) => {
     if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
@@ -4575,7 +4949,8 @@ export function App({ initialDocument }: AppProps) {
                 readerLayoutMode={readerLayoutMode}
                 settings={settings}
                 selectedPassage={selectedPassage}
-                annotations={currentPageAnnotations}
+                marginalia={currentPageMarginalia}
+                selectedMarginaliaId={selectedMarginaliaId}
                 activeParagraphId={voice.activeParagraphId}
                 activeTokenRange={voice.activeTokenRange}
                 activePageNumber={voice.activePageNumber}
@@ -4587,6 +4962,7 @@ export function App({ initialDocument }: AppProps) {
                 isAudioActive={voice.isSpeaking || voice.isPaused}
                 onSelectPage={setSelectedPage}
                 onSelectParagraph={setSelectedParagraphId}
+                onSelectMarginalia={setSelectedMarginaliaId}
                 onSelectText={setSelectedPassage}
                 onSeekToChar={voice.seekToCharIndex}
                 onPlayPage={handlePlayPage}
@@ -4594,8 +4970,7 @@ export function App({ initialDocument }: AppProps) {
                 explainEnabled={explainEnabled}
                 explainActionLabel={explainActionLabel}
                 onExplainSelection={handleExplainSelection}
-                onHighlightSelection={handleHighlightSelection}
-                onSaveSelectionNote={handleSaveSelectionNote}
+                onSaveMarginalia={upsertMarginalia}
                 onCopySelection={handleCopySelection}
                 onRunOcr={() => void runOcrForPage(currentPage.pageNumber, true)}
                 ocrStatus={ocrByPage[currentPage.pageNumber] ?? null}
@@ -4613,15 +4988,17 @@ export function App({ initialDocument }: AppProps) {
           document={document}
           page={currentPage}
           voice={voice}
-          annotations={currentPageAnnotations}
+          marginalia={currentPageMarginalia}
           selectedPassage={selectedPassage}
           selectedParagraph={selectedParagraph}
           selectedParagraphId={selectedParagraphId}
+          selectedMarginaliaId={selectedMarginaliaId}
           selectedPage={selectedPage}
           onPlayPage={handlePlayPage}
           playPageEnabled={pagePlaybackEnabled}
           playPageLabel={playbackBlockedLabel}
           onSelectParagraph={setSelectedParagraphId}
+          onSelectMarginalia={setSelectedMarginaliaId}
         />
       )}
 

@@ -127,18 +127,6 @@ function looksLikeFrontMatterLine(line: string, pageNumber: number) {
     return true;
   }
 
-  if (EMAIL_LINE_RE.test(line)) {
-    return true;
-  }
-
-  if (AFFILIATION_LINE_RE.test(line) && wordCount <= 12) {
-    return true;
-  }
-
-  if (AUTHOR_MARKER_RE.test(line) && wordCount <= 14) {
-    return true;
-  }
-
   return false;
 }
 
@@ -158,6 +146,14 @@ function unionRects(rects: ReaderRect[]) {
     width: Math.max(0, right - left),
     height: Math.max(0, bottom - top),
   } satisfies ReaderRect;
+}
+
+function getVerticalGap(previousLine: ExtractedLine | null, nextLine: ExtractedLine | null) {
+  if (!previousLine?.box || !nextLine?.box) {
+    return null;
+  }
+
+  return nextLine.box.y - (previousLine.box.y + previousLine.box.height);
 }
 
 function extractItemRect(item: Record<string, unknown>, pageHeight: number) {
@@ -254,7 +250,10 @@ function splitIntoParagraphs(lines: ExtractedLine[], pageNumber: number) {
   let current = "";
   let currentLineIndexes: number[] = [];
   let currentMode: "body" | "front-matter" | null = null;
-  let trailingFrontMatter = false;
+  const bodySplitMinChars = pageNumber === 1 ? 520 : 460;
+  const bodyForceSplitChars = pageNumber === 1 ? 1040 : 900;
+  const frontMatterSplitMinChars = 280;
+  const frontMatterForceSplitChars = 420;
 
   const flush = () => {
     if (!current.trim()) {
@@ -278,18 +277,22 @@ function splitIntoParagraphs(lines: ExtractedLine[], pageNumber: number) {
     }
 
     const sectionHeading = isSectionHeading(normalizedLine);
-    if (pageNumber === 1 && CONTRIBUTION_NOTE_RE.test(normalizedLine)) {
-      trailingFrontMatter = true;
-    }
-
-    const frontMatterLine =
-      trailingFrontMatter || looksLikeFrontMatterLine(normalizedLine, pageNumber);
+    const frontMatterLine = looksLikeFrontMatterLine(normalizedLine, pageNumber);
     const headingLike =
       ALL_CAPS_HEADING_RE.test(normalizedLine) ||
       TITLE_CASE_HEADING_RE.test(normalizedLine);
+    const previousLine =
+      currentLineIndexes.length > 0
+        ? lines[currentLineIndexes[currentLineIndexes.length - 1] ?? -1] ?? null
+        : null;
+    const verticalGap = getVerticalGap(previousLine, line);
+    const hasLargeParagraphGap =
+      verticalGap !== null &&
+      previousLine?.box &&
+      line.box &&
+      verticalGap > Math.max(previousLine.box.height, line.box.height) * 0.9;
 
     if (sectionHeading) {
-      trailingFrontMatter = false;
       flush();
       current = normalizedLine;
       currentLineIndexes = [lineIndex];
@@ -306,7 +309,10 @@ function splitIntoParagraphs(lines: ExtractedLine[], pageNumber: number) {
       currentLineIndexes.push(lineIndex);
       currentMode = "front-matter";
 
-      if (/[.!?]"?$/.test(normalizedLine) || current.length > 180) {
+      if (
+        (/[.!?]"?$/.test(normalizedLine) && current.length > frontMatterSplitMinChars) ||
+        current.length > frontMatterForceSplitChars
+      ) {
         flush();
       }
 
@@ -314,6 +320,10 @@ function splitIntoParagraphs(lines: ExtractedLine[], pageNumber: number) {
     }
 
     if (currentMode === "front-matter") {
+      flush();
+    }
+
+    if (currentMode === "body" && hasLargeParagraphGap && current.length > 120) {
       flush();
     }
 
@@ -325,12 +335,12 @@ function splitIntoParagraphs(lines: ExtractedLine[], pageNumber: number) {
     currentLineIndexes.push(lineIndex);
     currentMode = "body";
 
-    if (/[.!?]"?$/.test(normalizedLine) && current.length > 340) {
+    if (/[.!?]"?$/.test(normalizedLine) && current.length > bodySplitMinChars) {
       flush();
       continue;
     }
 
-    if (current.length > 760) {
+    if (current.length > bodyForceSplitChars) {
       flush();
     }
   }
