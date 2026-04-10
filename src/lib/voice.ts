@@ -716,11 +716,15 @@ export function useVoiceConsole({
       const audioUrl = response.audioUrl.startsWith("http")
         ? response.audioUrl
         : `${window.location.origin}${response.audioUrl}`;
+      let resolvedAlignment = response.alignment ?? null;
       const shouldFetchAlignment =
-        Boolean(session.clipCharRange) ||
-        preferAlignedPageClipPlayback ||
-        Boolean(runtime?.capabilities.features?.alignment) ||
-        capabilities.alignment;
+        !resolvedAlignment &&
+        (
+          Boolean(session.clipCharRange) ||
+          preferAlignedPageClipPlayback ||
+          Boolean(runtime?.capabilities.features?.alignment) ||
+          capabilities.alignment
+        );
       const alignmentPromise = shouldFetchAlignment
         ? (
           runtime
@@ -738,9 +742,9 @@ export function useVoiceConsole({
           return null;
         })
         : null;
-      let resolvedAlignment = session.clipCharRange && alignmentPromise
+      resolvedAlignment = session.clipCharRange && !resolvedAlignment && alignmentPromise
         ? await alignmentPromise
-        : null;
+        : resolvedAlignment;
       const clipTiming = session.clipCharRange && resolvedAlignment
         ? resolveClipTiming(session.text, session.clipCharRange, resolvedAlignment.words)
         : null;

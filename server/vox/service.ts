@@ -440,6 +440,7 @@ export class VoxService {
         format: "mp3",
         cached: true,
         audioUrl: cachedEntry.audioUrl ?? `/api/vox/audio/${cacheKey}`,
+        alignment: cachedEntry.alignment ?? null,
         source: cachedEntry.source,
       };
     }
@@ -512,6 +513,7 @@ export class VoxService {
         audioUrl: `/api/vox/audio/${cacheKey}`,
         audioDataBase64: Buffer.from(response.audioData).toString("base64"),
         audioMimeType: response.mimeType ?? "audio/mpeg",
+        alignment: null,
         source: request.source,
       } satisfies LineaVoiceSynthesisResponse;
     })();

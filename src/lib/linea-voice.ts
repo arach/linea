@@ -44,6 +44,7 @@ export type LineaVoiceSynthesisResponse = {
   audioUrl: string;
   audioDataBase64?: string;
   audioMimeType?: string;
+  alignment?: LineaVoiceAlignment | null;
   source?: LineaVoiceSynthesisRequest["source"];
 };
 
@@ -155,6 +156,7 @@ async function parseResponse<T>(
         format: payload.format,
         audioUrl: payload.audioUrl,
         inlineAudio: Boolean(payload.audioDataBase64),
+        alignmentIncluded: Boolean(payload.alignment?.words.length),
       };
     } else if (context.action === "align") {
       const payload = data as { alignment: LineaVoiceAlignment | null };
