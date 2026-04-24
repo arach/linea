@@ -6,6 +6,7 @@ import express from "express";
 
 import { createAccessRouter } from "./access/routes";
 import { LineaAccessService } from "./access/service";
+import { createLineaRouter } from "./linea/routes";
 import { loadServerEnv } from "./load-env";
 import { createVoxRouter } from "./vox/routes";
 
@@ -25,6 +26,7 @@ const access = new LineaAccessService();
 
 app.use(access.middleware());
 app.use("/api/access", createAccessRouter(access));
+app.use("/api/linea", createLineaRouter());
 app.use("/api/vox", createVoxRouter(access));
 app.use(
   "/vox-cache",
@@ -40,6 +42,15 @@ app.use(
     extensions: ["html"],
   }),
 );
+
+app.use((req, res, next) => {
+  if (req.path.startsWith("/api/")) {
+    res.status(404).json({ error: "API route not found" });
+    return;
+  }
+
+  next();
+});
 
 app.use(async (req, res, next) => {
   try {

@@ -1,4 +1,4 @@
-export type DevInspectorSource = "ora" | "vox" | "voxd" | "fabrun";
+export type DevInspectorSource = "ora" | "vox" | "voxd" | "fabrun" | "intake";
 export type DevInspectorStatus = "started" | "succeeded" | "failed" | "info";
 
 export type DevInspectorEntry = {
