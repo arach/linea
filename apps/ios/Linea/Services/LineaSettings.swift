@@ -51,6 +51,10 @@ final class LineaSettings: ObservableObject {
         didSet { defaults.set(customBaseURL, forKey: Keys.customBaseURL) }
     }
 
+    @Published var chatProviderID: String {
+        didSet { defaults.set(chatProviderID, forKey: Keys.chatProviderID) }
+    }
+
     var preferredColorScheme: ColorScheme? {
         switch appearance {
         case .system: nil
@@ -74,6 +78,7 @@ final class LineaSettings: ObservableObject {
         static let remoteProvider = "linea.remoteProvider"
         static let remoteVoice = "linea.remoteVoice"
         static let customBaseURL = "linea.customBaseURL"
+        static let chatProviderID = "linea.chatProviderID"
     }
 
     init(
@@ -88,5 +93,6 @@ final class LineaSettings: ObservableObject {
         self.remoteProvider = defaults.string(forKey: Keys.remoteProvider) ?? configuration.defaultRemoteProvider
         self.remoteVoice = defaults.string(forKey: Keys.remoteVoice) ?? configuration.defaultRemoteVoice
         self.customBaseURL = defaults.string(forKey: Keys.customBaseURL) ?? configuration.baseURL.absoluteString
+        self.chatProviderID = defaults.string(forKey: Keys.chatProviderID) ?? "appleLocal"
     }
 }

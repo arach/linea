@@ -6,11 +6,13 @@ struct SettingsView: View {
     @EnvironmentObject private var settings: LineaSettings
     @EnvironmentObject private var auth: AuthManager
     @EnvironmentObject private var chatService: DocumentChatService
+    @EnvironmentObject private var providerRegistry: LLMProviderRegistry
 
     @State private var providers: [RemoteVoiceProviderStatus] = []
     @State private var voices: [RemoteVoice] = []
     @State private var remoteMessage: String?
     @State private var isLoadingRemoteSettings = false
+    @State private var editingAPIKeyProviderID: String?
 
     private let remoteClient = LineaOraClient()
 
@@ -21,7 +23,7 @@ struct SettingsView: View {
                 appearanceSection
                 audioSection
                 remoteSection
-                chatSection
+                chatProvidersSection
                 accountSection
             }
             .scrollContentBackground(.hidden)
@@ -34,8 +36,18 @@ struct SettingsView: View {
                         .foregroundStyle(theme.palette.ink)
                 }
             }
+            .sheet(item: Binding(
+                get: { editingAPIKeyProviderID.map(APIKeyEditorContext.init) },
+                set: { editingAPIKeyProviderID = $0?.providerID }
+            )) { context in
+                if let provider = providerRegistry.provider(for: context.providerID) {
+                    APIKeyEditorSheet(provider: provider) {
+                        providerRegistry.refresh()
+                        syncChatProviderSelection()
+                    }
+                }
+            }
             .task {
-                await chatService.refreshAvailability()
                 await refreshRemoteSettings()
             }
             .onChange(of: settings.remoteProvider) { _, _ in
@@ -183,19 +195,83 @@ struct SettingsView: View {
         .listRowBackground(theme.palette.paper)
     }
 
-    private var chatSection: some View {
+    private var chatProvidersSection: some View {
         Section {
-            Text(chatService.isAvailable ? "On-device chat is available." : chatService.availabilityReason)
-                .font(theme.typography.serif.font(size: 13, weight: .regular, italic: true))
-                .foregroundStyle(theme.palette.inkSoft)
-            Button("Refresh Availability") {
-                Task { await chatService.refreshAvailability() }
+            let visibleProviders = providerRegistry.availableProviders
+
+            if visibleProviders.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ThemedEyebrow(text: "No chat providers configured")
+                    Text("Add an API key for OpenAI, Anthropic, or Groq below to enable document chat, or enable Apple Intelligence in System Settings.")
+                        .font(theme.typography.serif.font(size: 13, weight: .regular, italic: true))
+                        .foregroundStyle(theme.palette.inkSoft)
+                }
+            } else {
+                if visibleProviders.contains(where: { $0.isAvailable }) {
+                    Picker("Active Provider", selection: $settings.chatProviderID) {
+                        ForEach(visibleProviders.filter { $0.isAvailable }, id: \.id) { provider in
+                            Text(provider.label).tag(provider.id)
+                        }
+                    }
+                }
+
+                ForEach(visibleProviders, id: \.id) { provider in
+                    providerRow(for: provider)
+                }
             }
-            .foregroundStyle(theme.palette.ink)
         } header: {
             ThemedEyebrow(text: "Document Chat")
+        } footer: {
+            Text("API keys are stored in the system Keychain. Linea talks to providers directly from this device.")
+                .font(theme.typography.ui.font(size: 11))
+                .foregroundStyle(theme.palette.inkMuted)
         }
         .listRowBackground(theme.palette.paper)
+        .id(providerRegistry.revision)
+    }
+
+    private func providerRow(for provider: LLMProvider) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(provider.label)
+                    .font(theme.typography.display.font(size: 15, weight: .regular))
+                    .foregroundStyle(theme.palette.ink)
+                Text(providerSubtitle(for: provider))
+                    .font(theme.typography.ui.font(size: 11))
+                    .foregroundStyle(theme.palette.inkMuted)
+            }
+            Spacer()
+            if providerNeedsAPIKey(provider) {
+                Button(provider.isConfigured ? "Replace Key" : "Add API Key") {
+                    editingAPIKeyProviderID = provider.id
+                }
+                .font(theme.typography.ui.font(size: 12, weight: .medium))
+                .foregroundStyle(theme.palette.ink)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func providerSubtitle(for provider: LLMProvider) -> String {
+        if !provider.isConfigured && providerNeedsAPIKey(provider) {
+            return "\(provider.modelLabel) · Needs API key"
+        }
+        if !provider.isAvailable {
+            return "\(provider.modelLabel) · Unavailable"
+        }
+        return "\(provider.modelLabel) · Ready"
+    }
+
+    private func providerNeedsAPIKey(_ provider: LLMProvider) -> Bool {
+        provider.id != "appleLocal"
+    }
+
+    private func syncChatProviderSelection() {
+        let usable = providerRegistry.usableProviders
+        guard !usable.isEmpty else { return }
+        if usable.contains(where: { $0.id == settings.chatProviderID }) == false {
+            settings.chatProviderID = usable.first?.id ?? settings.chatProviderID
+        }
     }
 
     private var accountSection: some View {
@@ -296,5 +372,82 @@ struct SettingsView: View {
         case .completed: "Done"
         case .failed: "Failed"
         }
+    }
+}
+
+// MARK: - API key sheet
+
+private struct APIKeyEditorContext: Identifiable {
+    let providerID: String
+    var id: String { providerID }
+}
+
+private struct APIKeyEditorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.lineaTheme) private var theme
+
+    let provider: LLMProvider
+    let onChange: () -> Void
+
+    @State private var keyText: String = ""
+    @FocusState private var focused: Bool
+
+    private let store = APIKeyStore.shared
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    SecureField("API key", text: $keyText)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .focused($focused)
+                } header: {
+                    ThemedEyebrow(text: provider.label)
+                } footer: {
+                    Text("Stored securely in the iOS Keychain. Linea sends the key directly to \(provider.label) to fetch answers.")
+                        .font(theme.typography.ui.font(size: 11))
+                        .foregroundStyle(theme.palette.inkMuted)
+                }
+                .listRowBackground(theme.palette.paper)
+
+                if provider.isConfigured {
+                    Section {
+                        Button("Remove stored key", role: .destructive) {
+                            store.remove(providerID: provider.id)
+                            onChange()
+                            dismiss()
+                        }
+                    }
+                    .listRowBackground(theme.palette.paper)
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(theme.palette.paperDim.ignoresSafeArea())
+            .navigationTitle("API Key")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .foregroundStyle(theme.palette.ink)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        let trimmed = keyText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if trimmed.isEmpty {
+                            store.remove(providerID: provider.id)
+                        } else {
+                            store.set(providerID: provider.id, value: trimmed)
+                        }
+                        onChange()
+                        dismiss()
+                    }
+                    .disabled(keyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .foregroundStyle(theme.palette.ink)
+                }
+            }
+            .onAppear { focused = true }
+        }
+        .tint(theme.palette.ink)
     }
 }

@@ -26,7 +26,6 @@ struct DocumentChatView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .navigationBar)
             .task {
-                await chatService.refreshAvailability()
                 if threadID == nil {
                     threadID = library.document(id: documentID)?.conversationThreads.first?.id
                 }
@@ -151,17 +150,23 @@ struct DocumentChatView: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if chatService.isAvailable, let provider = chatService.activeProvider {
+                ThemedEyebrow(text: "Linea via \(provider.label) · \(provider.modelLabel)")
+            }
+
             if !chatService.isAvailable {
                 Text(chatService.availabilityReason)
                     .font(theme.typography.ui.font(size: 12))
                     .foregroundStyle(theme.palette.inkMuted)
             }
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    suggestionButton("Summarize this section")
-                    suggestionButton("What matters most here?")
-                    suggestionButton("Explain the difficult parts")
+            if chatService.isAvailable {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        suggestionButton("Summarize this section")
+                        suggestionButton("What matters most here?")
+                        suggestionButton("Explain the difficult parts")
+                    }
                 }
             }
 

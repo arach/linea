@@ -38,6 +38,13 @@
 		A1B2C3D49999999999990999 /* PageTextStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A1E5E79999999999999919 /* PageTextStore.swift */; };
 		A1B2C3D4AAAAAAAAAAA0AAAA /* PDFExtractionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A1E5E7AAAAAAAAAAAAAA1A /* PDFExtractionService.swift */; };
 		A1B2C3D4BBBBBBBBBBB0BBBB /* DocumentChunker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A1E5E7BBBBBBBBBBBBBB1B /* DocumentChunker.swift */; };
+		B2C3D4E5AAAA0001AAAA0001 /* LLMProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6AAAA0001AAAA0001 /* LLMProvider.swift */; };
+		B2C3D4E5AAAA0002AAAA0002 /* APIKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6AAAA0002AAAA0002 /* APIKeyStore.swift */; };
+		B2C3D4E5AAAA0003AAAA0003 /* AppleLocalProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6AAAA0003AAAA0003 /* AppleLocalProvider.swift */; };
+		B2C3D4E5AAAA0004AAAA0004 /* OpenAIProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6AAAA0004AAAA0004 /* OpenAIProvider.swift */; };
+		B2C3D4E5AAAA0005AAAA0005 /* AnthropicProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6AAAA0005AAAA0005 /* AnthropicProvider.swift */; };
+		B2C3D4E5AAAA0006AAAA0006 /* GroqProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6AAAA0006AAAA0006 /* GroqProvider.swift */; };
+		B2C3D4E5AAAA0007AAAA0007 /* LLMProviderRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6AAAA0007AAAA0007 /* LLMProviderRegistry.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -73,6 +80,13 @@
 		F1A1E5E79999999999999919 /* PageTextStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageTextStore.swift; sourceTree = "<group>"; };
 		F1A1E5E7AAAAAAAAAAAAAA1A /* PDFExtractionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFExtractionService.swift; sourceTree = "<group>"; };
 		F1A1E5E7BBBBBBBBBBBBBB1B /* DocumentChunker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentChunker.swift; sourceTree = "<group>"; };
+		C3D4E5F6AAAA0001AAAA0001 /* LLMProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMProvider.swift; sourceTree = "<group>"; };
+		C3D4E5F6AAAA0002AAAA0002 /* APIKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyStore.swift; sourceTree = "<group>"; };
+		C3D4E5F6AAAA0003AAAA0003 /* AppleLocalProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleLocalProvider.swift; sourceTree = "<group>"; };
+		C3D4E5F6AAAA0004AAAA0004 /* OpenAIProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIProvider.swift; sourceTree = "<group>"; };
+		C3D4E5F6AAAA0005AAAA0005 /* AnthropicProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnthropicProvider.swift; sourceTree = "<group>"; };
+		C3D4E5F6AAAA0006AAAA0006 /* GroqProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroqProvider.swift; sourceTree = "<group>"; };
+		C3D4E5F6AAAA0007AAAA0007 /* LLMProviderRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMProviderRegistry.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -141,8 +155,23 @@
 				F1A1E5E79999999999999919 /* PageTextStore.swift */,
 				424B1EAD3296997B0644A126 /* SpeechService.swift */,
 				C30B2F8C0F218F9E876AF697 /* URLImportService.swift */,
+				D4E5F6A7AAAA0000AAAA0000 /* LLM */,
 			);
 			path = Services;
+			sourceTree = "<group>";
+		};
+		D4E5F6A7AAAA0000AAAA0000 /* LLM */ = {
+			isa = PBXGroup;
+			children = (
+				C3D4E5F6AAAA0002AAAA0002 /* APIKeyStore.swift */,
+				C3D4E5F6AAAA0005AAAA0005 /* AnthropicProvider.swift */,
+				C3D4E5F6AAAA0003AAAA0003 /* AppleLocalProvider.swift */,
+				C3D4E5F6AAAA0006AAAA0006 /* GroqProvider.swift */,
+				C3D4E5F6AAAA0001AAAA0001 /* LLMProvider.swift */,
+				C3D4E5F6AAAA0007AAAA0007 /* LLMProviderRegistry.swift */,
+				C3D4E5F6AAAA0004AAAA0004 /* OpenAIProvider.swift */,
+			);
+			path = LLM;
 			sourceTree = "<group>";
 		};
 		9AAD5FC42512F4A981511730 /* App */ = {
@@ -293,6 +322,13 @@
 				A1B2C3D49999999999990999 /* PageTextStore.swift in Sources */,
 				A1B2C3D4AAAAAAAAAAA0AAAA /* PDFExtractionService.swift in Sources */,
 				A1B2C3D4BBBBBBBBBBB0BBBB /* DocumentChunker.swift in Sources */,
+				B2C3D4E5AAAA0001AAAA0001 /* LLMProvider.swift in Sources */,
+				B2C3D4E5AAAA0002AAAA0002 /* APIKeyStore.swift in Sources */,
+				B2C3D4E5AAAA0003AAAA0003 /* AppleLocalProvider.swift in Sources */,
+				B2C3D4E5AAAA0004AAAA0004 /* OpenAIProvider.swift in Sources */,
+				B2C3D4E5AAAA0005AAAA0005 /* AnthropicProvider.swift in Sources */,
+				B2C3D4E5AAAA0006AAAA0006 /* GroqProvider.swift in Sources */,
+				B2C3D4E5AAAA0007AAAA0007 /* LLMProviderRegistry.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

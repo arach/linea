@@ -1,9 +1,5 @@
 import Foundation
 
-#if canImport(FoundationModels)
-import FoundationModels
-#endif
-
 enum DocumentChatError: LocalizedError {
     case unavailable(String)
     case emptyQuestion
@@ -18,42 +14,39 @@ enum DocumentChatError: LocalizedError {
     }
 }
 
+/// Thin orchestrator: picks a provider from `LLMProviderRegistry` based on the
+/// user's active selection in `LineaSettings`, then forwards the prompt.
 @MainActor
 final class DocumentChatService: ObservableObject {
-    static let shared = DocumentChatService()
-
-    @Published private(set) var isAvailable = false
-    @Published private(set) var availabilityReason = "On-device document chat is not available."
     @Published private(set) var isResponding = false
 
-    private init() {
-        Task {
-            await refreshAvailability()
-        }
+    private let registry: LLMProviderRegistry
+    private let settings: LineaSettings
+
+    init(registry: LLMProviderRegistry, settings: LineaSettings) {
+        self.registry = registry
+        self.settings = settings
     }
 
-    func refreshAvailability() async {
-        #if canImport(FoundationModels)
-        if #available(iOS 26.0, *) {
-            switch SystemLanguageModel.default.availability {
-            case .available:
-                isAvailable = true
-                availabilityReason = "On-device chat is ready."
-            case .unavailable(let reason):
-                isAvailable = false
-                availabilityReason = "Apple Intelligence is unavailable: \(reason)"
-            @unknown default:
-                isAvailable = false
-                availabilityReason = "Apple Intelligence is unavailable on this device."
-            }
-        } else {
-            isAvailable = false
-            availabilityReason = "This build needs iOS 26 or later for on-device chat."
+    /// `true` when at least one provider can serve a request right now.
+    var isAvailable: Bool {
+        !registry.usableProviders.isEmpty
+    }
+
+    /// Only meaningful when `isAvailable == false`. UI should hide anything
+    /// else and show a single "no providers configured" hint.
+    var availabilityReason: String {
+        "No chat providers configured. Add an API key in Settings to enable document chat."
+    }
+
+    /// The provider the user has selected, or the first usable one. May be
+    /// `nil` if nothing is configured yet.
+    var activeProvider: LLMProvider? {
+        if let selected = registry.provider(for: settings.chatProviderID),
+           selected.isAvailable {
+            return selected
         }
-        #else
-        isAvailable = false
-        availabilityReason = "Foundation Models are not available in this SDK."
-        #endif
+        return registry.usableProviders.first
     }
 
     func answer(
@@ -67,31 +60,25 @@ final class DocumentChatService: ObservableObject {
             throw DocumentChatError.emptyQuestion
         }
 
-        guard isAvailable else {
+        guard let provider = activeProvider else {
             throw DocumentChatError.unavailable(availabilityReason)
         }
 
-        #if canImport(FoundationModels)
-        if #available(iOS 26.0, *) {
-            isResponding = true
-            defer { isResponding = false }
+        isResponding = true
+        defer { isResponding = false }
 
-            let session = LanguageModelSession(instructions: Self.systemPrompt)
-            let response = try await session.respond(
-                to: makePrompt(
-                    question: trimmedQuestion,
-                    document: document,
-                    thread: thread,
-                    focusedSection: focusedSection
-                ),
-                options: FoundationModels.GenerationOptions(temperature: 0.3)
-            )
+        let prompt = makePrompt(
+            question: trimmedQuestion,
+            document: document,
+            thread: thread,
+            focusedSection: focusedSection
+        )
 
-            return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        #endif
-
-        throw DocumentChatError.unavailable(availabilityReason)
+        return try await provider.answer(
+            prompt: prompt,
+            systemPrompt: Self.systemPrompt,
+            temperature: 0.3
+        )
     }
 
     private func makePrompt(
