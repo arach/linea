@@ -35,6 +35,13 @@
 		A1B2C3D46666666666660666 /* ThemeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A1E5E76666666666666606 /* ThemeManager.swift */; };
 		A1B2C3D47777777777770777 /* ThemedPrimitives.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A1E5E77777777777777707 /* ThemedPrimitives.swift */; };
 		A1B2C3D48888888888880888 /* LibraryHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A1E5E78888888888888808 /* LibraryHomeView.swift */; };
+		B2C3D4E5AAAA0001AAAA0001 /* LLMProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6AAAA0001AAAA0001 /* LLMProvider.swift */; };
+		B2C3D4E5AAAA0002AAAA0002 /* APIKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6AAAA0002AAAA0002 /* APIKeyStore.swift */; };
+		B2C3D4E5AAAA0003AAAA0003 /* AppleLocalProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6AAAA0003AAAA0003 /* AppleLocalProvider.swift */; };
+		B2C3D4E5AAAA0004AAAA0004 /* OpenAIProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6AAAA0004AAAA0004 /* OpenAIProvider.swift */; };
+		B2C3D4E5AAAA0005AAAA0005 /* AnthropicProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6AAAA0005AAAA0005 /* AnthropicProvider.swift */; };
+		B2C3D4E5AAAA0006AAAA0006 /* GroqProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6AAAA0006AAAA0006 /* GroqProvider.swift */; };
+		B2C3D4E5AAAA0007AAAA0007 /* LLMProviderRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6AAAA0007AAAA0007 /* LLMProviderRegistry.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -67,6 +74,13 @@
 		F1A1E5E76666666666666606 /* ThemeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeManager.swift; sourceTree = "<group>"; };
 		F1A1E5E77777777777777707 /* ThemedPrimitives.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemedPrimitives.swift; sourceTree = "<group>"; };
 		F1A1E5E78888888888888808 /* LibraryHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryHomeView.swift; sourceTree = "<group>"; };
+		C3D4E5F6AAAA0001AAAA0001 /* LLMProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMProvider.swift; sourceTree = "<group>"; };
+		C3D4E5F6AAAA0002AAAA0002 /* APIKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyStore.swift; sourceTree = "<group>"; };
+		C3D4E5F6AAAA0003AAAA0003 /* AppleLocalProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleLocalProvider.swift; sourceTree = "<group>"; };
+		C3D4E5F6AAAA0004AAAA0004 /* OpenAIProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIProvider.swift; sourceTree = "<group>"; };
+		C3D4E5F6AAAA0005AAAA0005 /* AnthropicProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnthropicProvider.swift; sourceTree = "<group>"; };
+		C3D4E5F6AAAA0006AAAA0006 /* GroqProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroqProvider.swift; sourceTree = "<group>"; };
+		C3D4E5F6AAAA0007AAAA0007 /* LLMProviderRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMProviderRegistry.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -132,8 +146,23 @@
 				82D4A25109A67E6A9F66A1F9 /* PDFImportService.swift */,
 				424B1EAD3296997B0644A126 /* SpeechService.swift */,
 				C30B2F8C0F218F9E876AF697 /* URLImportService.swift */,
+				D4E5F6A7AAAA0000AAAA0000 /* LLM */,
 			);
 			path = Services;
+			sourceTree = "<group>";
+		};
+		D4E5F6A7AAAA0000AAAA0000 /* LLM */ = {
+			isa = PBXGroup;
+			children = (
+				C3D4E5F6AAAA0002AAAA0002 /* APIKeyStore.swift */,
+				C3D4E5F6AAAA0005AAAA0005 /* AnthropicProvider.swift */,
+				C3D4E5F6AAAA0003AAAA0003 /* AppleLocalProvider.swift */,
+				C3D4E5F6AAAA0006AAAA0006 /* GroqProvider.swift */,
+				C3D4E5F6AAAA0001AAAA0001 /* LLMProvider.swift */,
+				C3D4E5F6AAAA0007AAAA0007 /* LLMProviderRegistry.swift */,
+				C3D4E5F6AAAA0004AAAA0004 /* OpenAIProvider.swift */,
+			);
+			path = LLM;
 			sourceTree = "<group>";
 		};
 		9AAD5FC42512F4A981511730 /* App */ = {
@@ -281,6 +310,13 @@
 				A1B2C3D46666666666660666 /* ThemeManager.swift in Sources */,
 				A1B2C3D47777777777770777 /* ThemedPrimitives.swift in Sources */,
 				A1B2C3D48888888888880888 /* LibraryHomeView.swift in Sources */,
+				B2C3D4E5AAAA0001AAAA0001 /* LLMProvider.swift in Sources */,
+				B2C3D4E5AAAA0002AAAA0002 /* APIKeyStore.swift in Sources */,
+				B2C3D4E5AAAA0003AAAA0003 /* AppleLocalProvider.swift in Sources */,
+				B2C3D4E5AAAA0004AAAA0004 /* OpenAIProvider.swift in Sources */,
+				B2C3D4E5AAAA0005AAAA0005 /* AnthropicProvider.swift in Sources */,
+				B2C3D4E5AAAA0006AAAA0006 /* GroqProvider.swift in Sources */,
+				B2C3D4E5AAAA0007AAAA0007 /* LLMProviderRegistry.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -7,6 +7,7 @@ struct LineaApp: App {
     @StateObject private var settings: LineaSettings
     @StateObject private var speech: SpeechService
     @StateObject private var auth: AuthManager
+    @StateObject private var providerRegistry: LLMProviderRegistry
     @StateObject private var chatService: DocumentChatService
     @StateObject private var themeManager: ThemeManager
     @State private var showSplash = true
@@ -17,7 +18,8 @@ struct LineaApp: App {
         let settings = LineaSettings.shared
         let speech = SpeechService.shared
         let auth = AuthManager.shared
-        let chatService = DocumentChatService.shared
+        let providerRegistry = LLMProviderRegistry()
+        let chatService = DocumentChatService(registry: providerRegistry, settings: settings)
         let themeManager = ThemeManager(initial: settings.themeID)
 
         auth.configureIfNeeded()
@@ -27,6 +29,7 @@ struct LineaApp: App {
         _settings = StateObject(wrappedValue: settings)
         _speech = StateObject(wrappedValue: speech)
         _auth = StateObject(wrappedValue: auth)
+        _providerRegistry = StateObject(wrappedValue: providerRegistry)
         _chatService = StateObject(wrappedValue: chatService)
         _themeManager = StateObject(wrappedValue: themeManager)
     }
@@ -43,6 +46,7 @@ struct LineaApp: App {
                         .environmentObject(settings)
                         .environmentObject(speech)
                         .environmentObject(auth)
+                        .environmentObject(providerRegistry)
                         .environmentObject(chatService)
                         .environmentObject(themeManager)
                 }
