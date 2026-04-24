@@ -1,4 +1,5 @@
 import Foundation
+import LineaCore
 
 enum DocumentChatError: LocalizedError {
     case unavailable(String)

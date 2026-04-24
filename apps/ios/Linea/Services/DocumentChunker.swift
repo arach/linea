@@ -1,4 +1,5 @@
 import Foundation
+import LineaCore
 import PDFKit
 
 /// Strategies for building `[DocumentSection]` from a (potentially very large)

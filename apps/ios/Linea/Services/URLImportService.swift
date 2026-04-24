@@ -1,4 +1,5 @@
 import Foundation
+import LineaCore
 
 struct URLContent {
     let title: String?

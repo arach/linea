@@ -1,4 +1,5 @@
 import SwiftUI
+import LineaCore
 
 struct ReaderView: View {
     let documentID: UUID

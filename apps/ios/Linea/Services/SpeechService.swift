@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import LineaCore
 
 struct RemoteVoiceProviderStatus: Decodable, Identifiable, Hashable {
     let id: String

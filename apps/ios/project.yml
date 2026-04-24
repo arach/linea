@@ -9,6 +9,8 @@ packages:
   Clerk:
     url: https://github.com/clerk/clerk-ios.git
     from: 1.0.0
+  LineaCore:
+    path: ../../Packages/LineaCore
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -22,6 +24,8 @@ targets:
     dependencies:
       - package: Clerk
         product: ClerkKit
+      - package: LineaCore
+        product: LineaCore
     info:
       path: Linea/Info.plist
     settings:

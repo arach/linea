@@ -1,4 +1,5 @@
 import SwiftUI
+import LineaCore
 
 struct DocumentChatView: View {
     let documentID: UUID
