@@ -18,14 +18,11 @@ final class LLMProviderRegistry: ObservableObject {
         self.providers = providers ?? Self.defaultProviders()
     }
 
-    /// Providers that are either currently usable (`isAvailable`) or at least
-    /// eligible to be used once an API key is added (`isConfigured`).
-    ///
-    /// This filters out Apple Intelligence on devices where the system model
-    /// is not available, and always surfaces remote providers so users can add
-    /// their own keys.
+    /// Providers to show in the Settings catalog. On-device providers drop
+    /// out on ineligible hardware; remote providers stay visible so users
+    /// can add keys.
     var availableProviders: [LLMProvider] {
-        providers.filter { $0.isAvailable || $0.isConfigured }
+        providers.filter { $0.isCatalogEligible }
     }
 
     /// Providers ready to serve a request right now.

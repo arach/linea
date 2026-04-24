@@ -89,7 +89,12 @@ final class LineaSettings: ObservableObject {
         self.configuration = configuration
         self.appearance = Appearance(rawValue: defaults.string(forKey: Keys.appearance) ?? "") ?? .system
         self.themeID = LineaThemeID(rawValue: defaults.string(forKey: Keys.themeID) ?? "") ?? .monochrome
-        self.speechMode = SpeechMode(rawValue: defaults.string(forKey: Keys.speechMode) ?? "") ?? .onDevice
+        // Temporarily pin playback to on-device. Remote TTS (Linea Ora) is
+        // hidden from the UI until we ship direct TTS providers or the
+        // paired companion app — forcing the value avoids a silently-broken
+        // Listen button on devices where the user may have flipped to
+        // .remote in an earlier build.
+        self.speechMode = .onDevice
         self.remoteProvider = defaults.string(forKey: Keys.remoteProvider) ?? configuration.defaultRemoteProvider
         self.remoteVoice = defaults.string(forKey: Keys.remoteVoice) ?? configuration.defaultRemoteVoice
         self.customBaseURL = defaults.string(forKey: Keys.customBaseURL) ?? configuration.baseURL.absoluteString

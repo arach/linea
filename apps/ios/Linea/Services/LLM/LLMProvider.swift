@@ -19,9 +19,15 @@ protocol LLMProvider: Sendable {
     var isConfigured: Bool { get }
 
     /// `true` when the provider can actually serve a request right now.
-    /// For remote providers this is equivalent to `isConfigured`.
+    /// For remote providers this is equivalent to having a stored API key.
     /// For on-device providers this also checks runtime availability.
     var isAvailable: Bool { get }
+
+    /// `true` when this provider should appear in the Settings catalog at all.
+    /// On-device providers hide on ineligible hardware (no amount of key
+    /// entry makes them work). Remote providers are always visible so users
+    /// can add a key. Defaults to `true`.
+    var isCatalogEligible: Bool { get }
 
     /// Produce a single, non-streaming answer.
     func answer(
@@ -29,6 +35,10 @@ protocol LLMProvider: Sendable {
         systemPrompt: String,
         temperature: Double
     ) async throws -> String
+}
+
+extension LLMProvider {
+    var isCatalogEligible: Bool { true }
 }
 
 /// Common error surface for providers.

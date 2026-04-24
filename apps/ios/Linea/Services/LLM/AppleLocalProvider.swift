@@ -14,7 +14,11 @@ final class AppleLocalProvider: LLMProvider {
     let label = "Apple Intelligence"
     let modelLabel = "On-device model"
 
-    let isConfigured = true
+    /// No key to set up — either the OS supports the model or it doesn't.
+    var isConfigured: Bool { isAvailable }
+
+    /// Hide entirely on ineligible hardware — no amount of tinkering helps.
+    var isCatalogEligible: Bool { isAvailable }
 
     var isAvailable: Bool {
         #if canImport(FoundationModels)

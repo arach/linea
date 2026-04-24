@@ -22,7 +22,6 @@ struct SettingsView: View {
                 themeSection
                 appearanceSection
                 audioSection
-                remoteSection
                 chatProvidersSection
                 accountSection
             }
@@ -44,18 +43,6 @@ struct SettingsView: View {
                     APIKeyEditorSheet(provider: provider) {
                         providerRegistry.refresh()
                         syncChatProviderSelection()
-                    }
-                }
-            }
-            .task {
-                await refreshRemoteSettings()
-            }
-            .onChange(of: settings.remoteProvider) { _, _ in
-                Task {
-                    do {
-                        try await loadVoices()
-                    } catch {
-                        remoteMessage = error.localizedDescription
                     }
                 }
             }
@@ -144,13 +131,20 @@ struct SettingsView: View {
 
     private var audioSection: some View {
         Section {
-            Picker("Playback", selection: $settings.speechMode) {
-                ForEach(LineaSettings.SpeechMode.allCases) { mode in
-                    Text(mode.label).tag(mode)
-                }
+            HStack {
+                Text("Playback")
+                    .foregroundStyle(theme.palette.ink)
+                Spacer()
+                Text("On Device")
+                    .font(theme.typography.serif.font(size: 14, weight: .regular, italic: true))
+                    .foregroundStyle(theme.palette.inkSoft)
             }
         } header: {
             ThemedEyebrow(text: "Reading Audio")
+        } footer: {
+            Text("TTS provider selection arrives when we ship direct OpenAI / ElevenLabs voice, or via the paired companion app.")
+                .font(theme.typography.ui.font(size: 11))
+                .foregroundStyle(theme.palette.inkMuted)
         }
         .listRowBackground(theme.palette.paper)
     }
@@ -202,7 +196,7 @@ struct SettingsView: View {
             if visibleProviders.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     ThemedEyebrow(text: "No chat providers configured")
-                    Text("Add an API key for OpenAI, Anthropic, or Groq below to enable document chat, or enable Apple Intelligence in System Settings.")
+                    Text("Add an API key for OpenAI, Anthropic, or Groq below to enable document chat.")
                         .font(theme.typography.serif.font(size: 13, weight: .regular, italic: true))
                         .foregroundStyle(theme.palette.inkSoft)
                 }
