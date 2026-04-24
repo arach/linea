@@ -85,11 +85,11 @@ function resolveAuthProvider(
   }
 
   if (requested === "clerk") {
-    return options.clerkConfigured ? "clerk" : "none";
+    return "clerk";
   }
 
   if (requested === "x") {
-    return options.xConfigured ? "x" : "none";
+    return "x";
   }
 
   if (options.clerkConfigured) {
@@ -125,11 +125,13 @@ export function getManagedAccessConfig() {
       xConfigured,
     },
   );
+  const authConfigured =
+    authProvider === "clerk" ? clerkConfigured : authProvider === "x" ? xConfigured : false;
   const managedAccessEnabled = parseBoolean(process.env.LINEA_MANAGED_ACCESS_ENABLED, false);
 
   cachedConfig = {
     authProvider,
-    authConfigured: authProvider !== "none",
+    authConfigured,
     clerkConfigured,
     xConfigured,
     managedAccessEnabled,
