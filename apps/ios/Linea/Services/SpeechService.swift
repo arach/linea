@@ -55,7 +55,7 @@ private struct RemoteSpeechResponse: Decodable {
     }
 }
 
-struct LineaVoxClient: Sendable {
+struct LineaOraClient: Sendable {
     private let configuration: LineaAppConfiguration
 
     init(configuration: LineaAppConfiguration = .shared) {
@@ -153,7 +153,7 @@ struct LineaVoxClient: Sendable {
               (200...299).contains(httpResponse.statusCode) else {
             let message = String(data: data, encoding: .utf8) ?? "The Linea voice request failed."
             throw NSError(
-                domain: "LineaVoxClient",
+                domain: "LineaOraClient",
                 code: (response as? HTTPURLResponse)?.statusCode ?? -1,
                 userInfo: [NSLocalizedDescriptionKey: message]
             )
@@ -173,7 +173,7 @@ final class SpeechService: NSObject, ObservableObject, AVSpeechSynthesizerDelega
     @Published var lastErrorMessage: String?
 
     private let synthesizer = AVSpeechSynthesizer()
-    private let remoteClient = LineaVoxClient()
+    private let remoteClient = LineaOraClient()
     private var audioPlayer: AVAudioPlayer?
 
     override init() {

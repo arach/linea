@@ -8,9 +8,15 @@ final class DocumentImporter: ObservableObject {
     @Published private(set) var lastErrorMessage: String?
 
     let library: DocumentLibrary
+    private weak var extractionService: PDFExtractionService?
 
-    init(library: DocumentLibrary) {
+    init(library: DocumentLibrary, extractionService: PDFExtractionService? = nil) {
         self.library = library
+        self.extractionService = extractionService
+    }
+
+    func attachExtractionService(_ service: PDFExtractionService) {
+        self.extractionService = service
     }
 
     var isImporting: Bool {
@@ -20,9 +26,46 @@ final class DocumentImporter: ObservableObject {
     func importPDF(from fileURL: URL) async throws -> ReadableDocument {
         begin("Importing PDF")
         do {
-            let draft = try await PDFImportService.importDocument(from: fileURL)
-            let document = try persist(draft: draft, sourceFileURL: fileURL)
+            let metadata = try PDFImportService.readMetadata(from: fileURL)
+
+            var document = ReadableDocument(
+                title: metadata.title,
+                sourceKind: .pdf,
+                sourceURL: fileURL.absoluteString,
+                sections: [],
+                fullText: "",
+                pageCount: metadata.pageCount,
+                extractionComplete: false
+            )
+
+            document.pageAssets.append(
+                try library.stageImportedFile(at: fileURL, for: document.id)
+            )
+
+            if let previewImageData = metadata.previewImageData {
+                document.pageAssets.append(
+                    try library.saveData(
+                        previewImageData,
+                        fileName: "preview.jpg",
+                        for: document.id,
+                        kind: .previewImage
+                    )
+                )
+            }
+
+            library.upsert(document)
             finish()
+
+            if let extractionService,
+               let stagedAsset = document.pageAssets.first(where: { $0.kind == .sourceFile }) {
+                let stagedURL = library.absoluteURL(for: stagedAsset)
+                extractionService.startExtraction(
+                    documentID: document.id,
+                    pdfURL: stagedURL,
+                    pageCount: metadata.pageCount
+                )
+            }
+
             return document
         } catch {
             finish(error: error)

@@ -9,11 +9,15 @@ struct LineaApp: App {
     @StateObject private var auth: AuthManager
     @StateObject private var chatService: DocumentChatService
     @StateObject private var themeManager: ThemeManager
+    @StateObject private var extractionService: PDFExtractionService
+    private let pageTextStore: PageTextStore
     @State private var showSplash = true
 
     init() {
         let library = DocumentLibrary()
-        let importer = DocumentImporter(library: library)
+        let pageTextStore = PageTextStore()
+        let extractionService = PDFExtractionService(library: library, pageStore: pageTextStore)
+        let importer = DocumentImporter(library: library, extractionService: extractionService)
         let settings = LineaSettings.shared
         let speech = SpeechService.shared
         let auth = AuthManager.shared
@@ -29,6 +33,8 @@ struct LineaApp: App {
         _auth = StateObject(wrappedValue: auth)
         _chatService = StateObject(wrappedValue: chatService)
         _themeManager = StateObject(wrappedValue: themeManager)
+        _extractionService = StateObject(wrappedValue: extractionService)
+        self.pageTextStore = pageTextStore
     }
 
     var body: some Scene {
@@ -45,6 +51,8 @@ struct LineaApp: App {
                         .environmentObject(auth)
                         .environmentObject(chatService)
                         .environmentObject(themeManager)
+                        .environmentObject(extractionService)
+                        .environment(\.pageTextStore, pageTextStore)
                 }
             }
             .lineaTheme(themeManager.theme)

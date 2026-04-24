@@ -20,7 +20,7 @@ final class LineaSettings: ObservableObject {
         var label: String {
             switch self {
             case .onDevice: "On Device"
-            case .remote: "Linea Vox"
+            case .remote: "Linea Ora"
             }
         }
     }

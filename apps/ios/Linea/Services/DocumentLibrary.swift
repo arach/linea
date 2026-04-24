@@ -44,6 +44,27 @@ final class DocumentLibrary: ObservableObject {
         persist()
     }
 
+    /// Persist the latest extraction progress for a document. Called from
+    /// `PDFExtractionService` as pages land and when extraction completes.
+    func updateExtractionState(
+        documentID: UUID,
+        pageCount: Int,
+        sections: [DocumentSection],
+        complete: Bool
+    ) {
+        guard let index = documents.firstIndex(where: { $0.id == documentID }) else { return }
+        var document = documents[index]
+        document.pageCount = pageCount
+        if !sections.isEmpty {
+            document.sections = sections
+        }
+        document.extractionComplete = complete
+        document.updatedAt = .now
+        documents[index] = document
+        sortDocuments()
+        persist()
+    }
+
     func markOpened(documentID: ReadableDocument.ID) {
         guard let index = documents.firstIndex(where: { $0.id == documentID }) else { return }
         documents[index].lastOpenedAt = .now

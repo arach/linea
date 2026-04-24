@@ -37,9 +37,21 @@ struct DocumentSection: Identifiable, Codable, Hashable {
     var title: String
     var text: String
     var pageNumber: Int?
+    var pageRange: ClosedRange<Int>?
 
     var wordCount: Int {
         text.lineaWordCount
+    }
+
+    /// Load the section's text. Legacy documents keep `text` populated
+    /// inline; new PDF imports store text per-page on disk and reconstruct
+    /// the section via `PageTextStore` when rendered.
+    func sectionText(loadingWith store: PageTextStore, documentID: UUID) async -> String {
+        if !text.isEmpty { return text }
+        guard let range = pageRange else { return "" }
+        return await Task.detached(priority: .userInitiated) {
+            store.readPages(documentID: documentID, range: range)
+        }.value
     }
 }
 
@@ -74,6 +86,8 @@ struct ReadableDocument: Identifiable, Codable, Hashable {
     var lastOpenedAt: Date?
     var sections: [DocumentSection]
     var fullText: String
+    var pageCount: Int = 0
+    var extractionComplete: Bool = false
     var pageAssets: [ImportedAsset] = []
     var conversationThreads: [DocumentConversationThread] = []
 
@@ -82,11 +96,20 @@ struct ReadableDocument: Identifiable, Codable, Hashable {
     }
 
     var totalWordCount: Int {
-        fullText.lineaWordCount
+        if !fullText.isEmpty {
+            return fullText.lineaWordCount
+        }
+        return sections.reduce(0) { $0 + $1.wordCount }
     }
 
     var preview: String {
-        String(fullText.prefix(220)).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !fullText.isEmpty {
+            return String(fullText.prefix(220)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let firstNonEmpty = sections.first(where: { !$0.text.isEmpty }) {
+            return String(firstNonEmpty.text.prefix(220)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return ""
     }
 }
 

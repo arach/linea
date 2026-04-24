@@ -35,6 +35,9 @@
 		A1B2C3D46666666666660666 /* ThemeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A1E5E76666666666666606 /* ThemeManager.swift */; };
 		A1B2C3D47777777777770777 /* ThemedPrimitives.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A1E5E77777777777777707 /* ThemedPrimitives.swift */; };
 		A1B2C3D48888888888880888 /* LibraryHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A1E5E78888888888888808 /* LibraryHomeView.swift */; };
+		A1B2C3D49999999999990999 /* PageTextStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A1E5E79999999999999919 /* PageTextStore.swift */; };
+		A1B2C3D4AAAAAAAAAAA0AAAA /* PDFExtractionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A1E5E7AAAAAAAAAAAAAA1A /* PDFExtractionService.swift */; };
+		A1B2C3D4BBBBBBBBBBB0BBBB /* DocumentChunker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A1E5E7BBBBBBBBBBBBBB1B /* DocumentChunker.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -67,6 +70,9 @@
 		F1A1E5E76666666666666606 /* ThemeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeManager.swift; sourceTree = "<group>"; };
 		F1A1E5E77777777777777707 /* ThemedPrimitives.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemedPrimitives.swift; sourceTree = "<group>"; };
 		F1A1E5E78888888888888808 /* LibraryHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryHomeView.swift; sourceTree = "<group>"; };
+		F1A1E5E79999999999999919 /* PageTextStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageTextStore.swift; sourceTree = "<group>"; };
+		F1A1E5E7AAAAAAAAAAAAAA1A /* PDFExtractionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFExtractionService.swift; sourceTree = "<group>"; };
+		F1A1E5E7BBBBBBBBBBBBBB1B /* DocumentChunker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentChunker.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -124,12 +130,15 @@
 			children = (
 				1BE16DA1E34F4A12E9FB0270 /* AuthManager.swift */,
 				7B5E8D5B34891A598DF46FBF /* DocumentChatService.swift */,
+				F1A1E5E7BBBBBBBBBBBBBB1B /* DocumentChunker.swift */,
 				ACBD5C1FF363A56320D6BB59 /* DocumentImporter.swift */,
 				9C2B3868F87FDA1B58F5E65D /* DocumentLibrary.swift */,
 				3CA77ED1407EAF6DB1075F75 /* LineaAppConfiguration.swift */,
 				8B21817615D84CBC2C4E442F /* LineaSettings.swift */,
 				F322E6C4CAC571CCD8B91289 /* OCRService.swift */,
+				F1A1E5E7AAAAAAAAAAAAAA1A /* PDFExtractionService.swift */,
 				82D4A25109A67E6A9F66A1F9 /* PDFImportService.swift */,
+				F1A1E5E79999999999999919 /* PageTextStore.swift */,
 				424B1EAD3296997B0644A126 /* SpeechService.swift */,
 				C30B2F8C0F218F9E876AF697 /* URLImportService.swift */,
 			);
@@ -281,6 +290,9 @@
 				A1B2C3D46666666666660666 /* ThemeManager.swift in Sources */,
 				A1B2C3D47777777777770777 /* ThemedPrimitives.swift in Sources */,
 				A1B2C3D48888888888880888 /* LibraryHomeView.swift in Sources */,
+				A1B2C3D49999999999990999 /* PageTextStore.swift in Sources */,
+				A1B2C3D4AAAAAAAAAAA0AAAA /* PDFExtractionService.swift in Sources */,
+				A1B2C3D4BBBBBBBBBBB0BBBB /* DocumentChunker.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

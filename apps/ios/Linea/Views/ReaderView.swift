@@ -7,6 +7,8 @@ struct ReaderView: View {
     @EnvironmentObject private var speech: SpeechService
     @EnvironmentObject private var settings: LineaSettings
     @EnvironmentObject private var auth: AuthManager
+    @EnvironmentObject private var extractionService: PDFExtractionService
+    @Environment(\.pageTextStore) private var pageTextStore
     @Environment(\.lineaTheme) private var theme
 
     @State private var selectedSectionID: UUID?
@@ -19,6 +21,7 @@ struct ReaderView: View {
                     VStack(alignment: .leading, spacing: theme.spacing.xl) {
                         readerHeader(for: document)
                         ThemedRule()
+                        extractionStatus(for: document)
                         sectionsBlock(for: document)
                     }
                     .padding(.horizontal, theme.spacing.readingGutter)
@@ -86,62 +89,64 @@ struct ReaderView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    // MARK: - Extraction status
+
+    @ViewBuilder
+    private func extractionStatus(for document: ReadableDocument) -> some View {
+        let progress = extractionService.progress(for: document.id)
+        let isRunning = !document.extractionComplete && progress.status != .complete
+        if isRunning && progress.pageCount > 0 {
+            ThemedEyebrow(
+                text: "Preparing pages \(progress.extractedCount) / \(progress.pageCount)",
+                emphasis: .soft
+            )
+        }
+    }
+
     // MARK: - Sections
 
+    @ViewBuilder
     private func sectionsBlock(for document: ReadableDocument) -> some View {
-        VStack(alignment: .leading, spacing: theme.spacing.lg) {
-            ForEach(document.sections) { section in
-                sectionCard(for: section)
-                    .onTapGesture { selectedSectionID = section.id }
+        if document.sections.isEmpty {
+            let progress = extractionService.progress(for: document.id)
+            if !document.extractionComplete {
+                preparingPlaceholder(pageCount: max(progress.pageCount, document.pageCount))
+            }
+        } else {
+            VStack(alignment: .leading, spacing: theme.spacing.lg) {
+                ForEach(document.sections) { section in
+                    sectionCard(for: section)
+                        .onTapGesture { selectedSectionID = section.id }
+                }
             }
         }
     }
 
+    private func preparingPlaceholder(pageCount: Int) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ThemedEyebrow(text: "Preparing", emphasis: .strong)
+            Text(pageCount > 0 ? "Preparing pages 1–\(pageCount)" : "Preparing pages")
+                .font(theme.typography.serif.font(size: 16.5, weight: .regular, italic: true))
+                .foregroundStyle(theme.palette.inkSoft)
+        }
+        .padding(.vertical, 16)
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: theme.radii.md, style: .continuous)
+                .fill(theme.palette.paperDim)
+        )
+    }
+
+    @ViewBuilder
     private func sectionCard(for section: DocumentSection) -> some View {
         let isSelected = selectedSectionID == section.id
-
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(section.title)
-                    .font(theme.typography.display.font(size: 20, weight: .regular))
-                    .tracking(theme.metrics.displayTracking)
-                    .foregroundStyle(theme.palette.ink)
-                Spacer()
-                if let pageNumber = section.pageNumber {
-                    ThemedEyebrow(text: "Page \(pageNumber)")
-                }
-            }
-
-            Text(section.text)
-                .font(theme.typography.serif.font(size: 16.5, weight: .regular))
-                .foregroundStyle(theme.palette.ink.opacity(isSelected ? 1 : 0.78))
-                .lineSpacing(5)
-                .textSelection(.enabled)
-
-            ThemedRule()
-
-            HStack {
-                Text("\(section.wordCount) words")
-                    .font(theme.typography.ui.font(size: 11, weight: .regular))
-                    .foregroundStyle(theme.palette.inkMuted)
-                Spacer()
-                Button("Listen from here") {
-                    guard let document = library.document(id: documentID) else { return }
-                    Task {
-                        let token = await auth.authToken
-                        await speech.speak(
-                            document: document,
-                            startingAt: section,
-                            settings: settings,
-                            authToken: token
-                        )
-                    }
-                }
-                .font(theme.typography.ui.font(size: 11, weight: .medium))
-                .foregroundStyle(theme.palette.ink)
-                .buttonStyle(.plain)
-            }
-        }
+        SectionBody(
+            section: section,
+            documentID: documentID,
+            isSelected: isSelected,
+            onListen: { listen(from: section) }
+        )
         .padding(.horizontal, isSelected ? 14 : 0)
         .padding(.vertical, isSelected ? 16 : 4)
         .background(
@@ -156,6 +161,19 @@ struct ReaderView: View {
     }
 
     // MARK: - Helpers
+
+    private func listen(from section: DocumentSection) {
+        guard let document = library.document(id: documentID) else { return }
+        Task {
+            let token = await auth.authToken
+            await speech.speak(
+                document: document,
+                startingAt: section,
+                settings: settings,
+                authToken: token
+            )
+        }
+    }
 
     private func sectionIndexLabel(for document: ReadableDocument) -> String {
         guard let id = selectedSectionID,
@@ -188,5 +206,82 @@ struct ReaderView: View {
             return speech.isSpeaking ? "pause" : "play"
         }
         return "speaker.wave.2"
+    }
+}
+
+// MARK: - Section rendering with lazy text loading
+
+private struct SectionBody: View {
+    let section: DocumentSection
+    let documentID: UUID
+    let isSelected: Bool
+    let onListen: () -> Void
+
+    @Environment(\.lineaTheme) private var theme
+    @Environment(\.pageTextStore) private var pageTextStore
+    @State private var loadedText: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(section.title)
+                    .font(theme.typography.display.font(size: 20, weight: .regular))
+                    .tracking(theme.metrics.displayTracking)
+                    .foregroundStyle(theme.palette.ink)
+                Spacer()
+                if section.pageNumber != nil || section.pageRange != nil {
+                    ThemedEyebrow(text: pageLabel)
+                }
+            }
+
+            Text(resolvedText)
+                .font(theme.typography.serif.font(size: 16.5, weight: .regular))
+                .foregroundStyle(theme.palette.ink.opacity(isSelected ? 1 : 0.78))
+                .lineSpacing(5)
+                .textSelection(.enabled)
+
+            ThemedRule()
+
+            HStack {
+                Text("\(wordCount) words")
+                    .font(theme.typography.ui.font(size: 11, weight: .regular))
+                    .foregroundStyle(theme.palette.inkMuted)
+                Spacer()
+                Button("Listen from here", action: onListen)
+                    .font(theme.typography.ui.font(size: 11, weight: .medium))
+                    .foregroundStyle(theme.palette.ink)
+                    .buttonStyle(.plain)
+            }
+        }
+        .task(id: section.id) {
+            await loadIfNeeded()
+        }
+    }
+
+    private var resolvedText: String {
+        if !section.text.isEmpty { return section.text }
+        return loadedText
+    }
+
+    private var wordCount: Int {
+        !section.text.isEmpty ? section.wordCount : loadedText.lineaWordCount
+    }
+
+    private var pageLabel: String {
+        if let range = section.pageRange, range.lowerBound != range.upperBound {
+            return "Pages \(range.lowerBound)–\(range.upperBound)"
+        }
+        if let pageNumber = section.pageNumber {
+            return "Page \(pageNumber)"
+        }
+        return ""
+    }
+
+    private func loadIfNeeded() async {
+        guard section.text.isEmpty, loadedText.isEmpty else { return }
+        let text = await section.sectionText(loadingWith: pageTextStore, documentID: documentID)
+        await MainActor.run {
+            self.loadedText = text
+        }
     }
 }

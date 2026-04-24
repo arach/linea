@@ -12,7 +12,7 @@ struct SettingsView: View {
     @State private var remoteMessage: String?
     @State private var isLoadingRemoteSettings = false
 
-    private let remoteClient = LineaVoxClient()
+    private let remoteClient = LineaOraClient()
 
     var body: some View {
         NavigationStack {
@@ -178,7 +178,7 @@ struct SettingsView: View {
                     .foregroundStyle(theme.palette.inkSoft)
             }
         } header: {
-            ThemedEyebrow(text: "Remote Voice")
+            ThemedEyebrow(text: "Linea Ora")
         }
         .listRowBackground(theme.palette.paper)
     }
@@ -267,8 +267,8 @@ struct SettingsView: View {
                 authToken: token
             )
             remoteMessage = capabilities?.alignment == true
-                ? "Linea Vox is reachable and alignment is available."
-                : "Linea Vox is reachable."
+                ? "Linea Ora is reachable and alignment is available."
+                : "Linea Ora is reachable."
         } catch {
             remoteMessage = error.localizedDescription
             providers = []
