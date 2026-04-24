@@ -1,0 +1,43 @@
+name: Linea
+options:
+  bundleIdPrefix: com.uselinea
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+packages:
+  Clerk:
+    url: https://github.com/clerk/clerk-ios.git
+    from: 1.0.0
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGN_STYLE: Automatic
+targets:
+  LineaApp:
+    type: application
+    platform: iOS
+    sources:
+      - Linea
+    dependencies:
+      - package: Clerk
+        product: ClerkKit
+    info:
+      path: Linea/Info.plist
+    settings:
+      PRODUCT_NAME: Linea
+      PRODUCT_MODULE_NAME: LineaApp
+      PRODUCT_BUNDLE_IDENTIFIER: com.uselinea.reader
+      GENERATE_INFOPLIST_FILE: YES
+      INFOPLIST_KEY_CFBundleDisplayName: Linea
+      INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+      INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+      INFOPLIST_KEY_UILaunchScreen_Generation: YES
+      INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+      INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+      INFOPLIST_KEY_NSCameraUsageDescription: "Linea uses the camera to scan pages into readable documents."
+      INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: "Linea can use system speech features to read documents aloud."
+      INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "Linea can import images to turn them into readable documents."
+      INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: "Linea may save scan previews for imported documents."
+      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
