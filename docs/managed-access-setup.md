@@ -3,13 +3,13 @@
 This repo now supports two voice modes:
 
 - Local mode: the existing credential flow in the app and Bun secure storage
-- Managed mode: Clerk-authenticated access to server-side provider keys with quota tracking
+- Managed mode: authenticated access to server-side provider keys with quota tracking
 
 Managed mode is controlled by `LINEA_MANAGED_ACCESS_ENABLED=true`.
 
 ## What Was Added
 
-- Clerk-aware access session endpoint at `/api/access/session`
+- Auth-aware access session endpoint at `/api/access/session`
 - Shared-access policy layer in `server/access`
 - Optional Postgres-backed metering and access grants
 - Managed TTS and alignment gating on `/api/vox/synthesize` and `/api/vox/align/:cacheKey`
@@ -20,9 +20,16 @@ Managed mode is controlled by `LINEA_MANAGED_ACCESS_ENABLED=true`.
 Copy `.env.example` to `.env.local` for local development or add these in Vercel:
 
 ```bash
+LINEA_AUTH_PROVIDER=clerk
+
 VITE_CLERK_PUBLISHABLE_KEY=
 CLERK_PUBLISHABLE_KEY=
 CLERK_SECRET_KEY=
+
+LINEA_X_CLIENT_ID=
+LINEA_X_CLIENT_SECRET=
+LINEA_X_CALLBACK_URL=
+LINEA_SESSION_SECRET=
 
 LINEA_MANAGED_ACCESS_ENABLED=true
 LINEA_MANAGED_OPENAI_API_KEY=
@@ -39,8 +46,12 @@ DATABASE_URL=
 
 Notes:
 
+- `LINEA_AUTH_PROVIDER` can be `clerk`, `x`, `auto`, or `none`.
+- `auto` preserves the existing default by preferring Clerk when it is configured, then X.
 - `VITE_CLERK_PUBLISHABLE_KEY` is used by the browser.
 - `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` are used by the Express server.
+- `LINEA_X_CLIENT_ID`, `LINEA_X_CLIENT_SECRET`, and `LINEA_X_CALLBACK_URL` configure direct OAuth with X.
+- `LINEA_SESSION_SECRET` signs the short-lived X auth flow cookie and the Linea session cookie.
 - `LINEA_MANAGED_OPENAI_API_KEY` and `LINEA_MANAGED_ELEVENLABS_API_KEY` are the shared server-side keys.
 - `LINEA_OWNER_EMAILS` always get unlimited access.
 - `LINEA_MANAGED_ALLOWED_EMAILS` get the default managed quotas unless a Postgres grant overrides them.
@@ -55,15 +66,29 @@ Notes:
    - X can be enabled as a secondary login path later.
 4. Set your Clerk allowed redirect URLs to the Linea app URL you are using locally and on Vercel.
 
+## Direct X Setup
+
+Use this when you want to bypass Clerk and authenticate against X directly.
+
+1. Set `LINEA_AUTH_PROVIDER=x`.
+2. Create or open your X app in the Developer Console.
+3. Enable OAuth 2.0 for the app and use a confidential client type.
+4. Add an exact callback URL such as `http://localhost:5173/api/access/auth/x/callback` for local development and your production callback URL for Vercel.
+5. Copy the X client ID and client secret into `LINEA_X_CLIENT_ID` and `LINEA_X_CLIENT_SECRET`.
+6. Set `LINEA_X_CALLBACK_URL` to the exact callback URL you registered in X.
+7. Generate a strong random value for `LINEA_SESSION_SECRET`.
+
+The direct X flow currently requests `users.read` and `users.email`, then stores a signed Linea session cookie after callback.
+
 ## Google And X
 
 Recommended sequence:
 
-1. Enable Google in Clerk first.
-2. Confirm sign-in works locally.
-3. Add X only after the email-based allowlist flow is working cleanly.
+1. Get one auth provider working end to end.
+2. Confirm `/api/access/session` returns a signed-in email.
+3. Only then rely on the email allowlist or Postgres grants.
 
-Because the current shared-access policy is email-driven, Google is the primary path that maps best to “signed in with the right email address.”
+The current shared-access policy is still email-driven, so whichever provider you use needs to yield a usable email address after sign-in.
 
 ## Postgres Setup
 
@@ -112,7 +137,7 @@ on conflict (email) do update set
 1. Add all env vars from `.env.example`.
 2. Set `LINEA_MANAGED_ACCESS_ENABLED=true`.
 3. Add the managed provider keys.
-4. Add the Clerk keys.
+4. Add the auth-provider envs for whichever path you are using.
 5. Add `DATABASE_URL`.
 6. Redeploy.
 
@@ -132,6 +157,12 @@ curl http://localhost:5173/api/vox/providers
 curl http://localhost:5173/api/vox/capabilities
 ```
 
+If you are testing direct X auth, open the app in the browser and use the sign-in button or go directly to:
+
+```bash
+open 'http://localhost:5173/api/access/auth/x/start?return_to=%2Fplayground'
+```
+
 If port `5173` is already occupied, use:
 
 ```bash
@@ -143,4 +174,4 @@ PORT=5174 bun run dev
 - Audio file serving is still URL-based and not yet user-bound.
 - Metering is append-only usage tracking, not billing.
 - Access grants are email-centric; there is not yet an admin UI for editing them.
-- Clerk sign-in is wired into the app shell, but the landing page does not yet have a dedicated auth surface.
+- Direct X auth currently clears the local Linea session on sign-out, but it does not revoke the connected app grant on X.

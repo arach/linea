@@ -67,14 +67,32 @@ function currentUrl() {
   return typeof window !== "undefined" ? window.location.href : "/";
 }
 
-function useStableRedirectUrl() {
+function currentPathWithSearch() {
+  if (typeof window === "undefined") {
+    return "/";
+  }
+
+  return `${window.location.pathname}${window.location.search}`;
+}
+
+function buildDirectXSignInUrl(returnTo: string) {
+  return `/api/access/auth/x/start?return_to=${encodeURIComponent(returnTo)}`;
+}
+
+function buildDirectSignOutUrl(returnTo: string) {
+  return `/api/access/sign-out?return_to=${encodeURIComponent(returnTo)}`;
+}
+
+function useStableRedirectUrls() {
   const [redirectUrl, setRedirectUrl] = useState("/");
 
   useEffect(() => {
     setRedirectUrl(currentUrl());
   }, []);
 
-  return redirectUrl;
+  return {
+    redirectUrl,
+  };
 }
 
 export function ClerkAccessControls({
@@ -84,9 +102,11 @@ export function ClerkAccessControls({
   snapshot: LineaManagedAccessSnapshot;
   compact?: boolean;
 }) {
-  const redirectUrl = useStableRedirectUrl();
+  const { redirectUrl } = useStableRedirectUrls();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const usesClerk = snapshot.authProvider === "clerk";
+  const usesDirectX = snapshot.authProvider === "x";
 
   useEffect(() => {
     if (!menuOpen) {
@@ -114,17 +134,35 @@ export function ClerkAccessControls({
     };
   }, [menuOpen]);
 
-  if (!getClerkPublishableKey()) {
+  if (usesClerk && !getClerkPublishableKey()) {
     return null;
   }
 
-  if (!snapshot.enabled && !snapshot.user) {
+  if ((!snapshot.enabled && !snapshot.user) || !snapshot.authConfigured) {
     return null;
   }
 
   const buttonClassName = compact ? "linea-btn-secondary" : "linea-btn-secondary";
 
   if (snapshot.user) {
+    const signOutButton = usesClerk ? (
+      <SignOutButton redirectUrl={redirectUrl}>
+        <button type="button" className={buttonClassName}>
+          Sign out
+        </button>
+      </SignOutButton>
+    ) : (
+      <button
+        type="button"
+        className={buttonClassName}
+        onClick={() => {
+          window.location.assign(buildDirectSignOutUrl(currentPathWithSearch()));
+        }}
+      >
+        Sign out
+      </button>
+    );
+
     if (compact) {
       return (
         <div ref={menuRef} className="linea-account-shell">
@@ -163,11 +201,23 @@ export function ClerkAccessControls({
                   : "Shared voice stays server-managed on this deployment, so provider keys remain off the client."}
               </p>
 
-              <SignOutButton redirectUrl={redirectUrl}>
-                <button type="button" className="linea-btn-secondary linea-account-signout">
+              {usesClerk ? (
+                <SignOutButton redirectUrl={redirectUrl}>
+                  <button type="button" className="linea-btn-secondary linea-account-signout">
+                    Sign out
+                  </button>
+                </SignOutButton>
+              ) : (
+                <button
+                  type="button"
+                  className="linea-btn-secondary linea-account-signout"
+                  onClick={() => {
+                    window.location.assign(buildDirectSignOutUrl(currentPathWithSearch()));
+                  }}
+                >
                   Sign out
                 </button>
-              </SignOutButton>
+              )}
             </div>
           ) : null}
         </div>
@@ -187,12 +237,22 @@ export function ClerkAccessControls({
             {getSignedInLabel(snapshot)}
           </span>
         ) : null}
-        <SignOutButton redirectUrl={redirectUrl}>
-          <button type="button" className={buttonClassName}>
-            Sign out
-          </button>
-        </SignOutButton>
+        {signOutButton}
       </div>
+    );
+  }
+
+  if (usesDirectX) {
+    return (
+      <button
+        type="button"
+        className={buttonClassName}
+        onClick={() => {
+          window.location.assign(buildDirectXSignInUrl(currentUrl()));
+        }}
+      >
+        Continue with X
+      </button>
     );
   }
 

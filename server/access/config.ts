@@ -1,7 +1,13 @@
+import type { LineaAuthProvider } from "../../src/lib/linea-access";
 import type { LineaVoiceProviderId } from "../../src/lib/linea-voice";
 
+type RequestedAuthProvider = LineaAuthProvider | "auto";
+
 type ManagedAccessConfig = {
+  authProvider: LineaAuthProvider;
+  authConfigured: boolean;
   clerkConfigured: boolean;
+  xConfigured: boolean;
   managedAccessEnabled: boolean;
   localCredentialsEnabled: boolean;
   postgresUrl: string | null;
@@ -9,6 +15,10 @@ type ManagedAccessConfig = {
   allowlistedEmails: string[];
   defaultTtsCharLimit: number | null;
   defaultTranscriptionSecondLimit: number | null;
+  xClientId: string | null;
+  xClientSecret: string | null;
+  xCallbackUrl: string | null;
+  sessionSecret: string | null;
   managedApiKeys: Partial<Record<LineaVoiceProviderId, string>>;
 };
 
@@ -48,6 +58,51 @@ function parseNullableInteger(value: string | undefined, fallback: number | null
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
+function parseRequestedAuthProvider(value: string | undefined): RequestedAuthProvider {
+  const normalized = value?.trim().toLowerCase();
+
+  if (normalized === "x") {
+    return "x";
+  }
+
+  if (normalized === "clerk") {
+    return "clerk";
+  }
+
+  if (normalized === "none") {
+    return "none";
+  }
+
+  return "auto";
+}
+
+function resolveAuthProvider(
+  requested: RequestedAuthProvider,
+  options: { clerkConfigured: boolean; xConfigured: boolean },
+): LineaAuthProvider {
+  if (requested === "none") {
+    return "none";
+  }
+
+  if (requested === "clerk") {
+    return options.clerkConfigured ? "clerk" : "none";
+  }
+
+  if (requested === "x") {
+    return options.xConfigured ? "x" : "none";
+  }
+
+  if (options.clerkConfigured) {
+    return "clerk";
+  }
+
+  if (options.xConfigured) {
+    return "x";
+  }
+
+  return "none";
+}
+
 export function getManagedAccessConfig() {
   if (cachedConfig) {
     return cachedConfig;
@@ -58,10 +113,25 @@ export function getManagedAccessConfig() {
   const clerkConfigured = Boolean(
     process.env.CLERK_PUBLISHABLE_KEY?.trim() && process.env.CLERK_SECRET_KEY?.trim(),
   );
+  const xClientId = process.env.LINEA_X_CLIENT_ID?.trim() || null;
+  const xClientSecret = process.env.LINEA_X_CLIENT_SECRET?.trim() || null;
+  const xCallbackUrl = process.env.LINEA_X_CALLBACK_URL?.trim() || null;
+  const sessionSecret = process.env.LINEA_SESSION_SECRET?.trim() || null;
+  const xConfigured = Boolean(xClientId && xClientSecret && xCallbackUrl && sessionSecret);
+  const authProvider = resolveAuthProvider(
+    parseRequestedAuthProvider(process.env.LINEA_AUTH_PROVIDER),
+    {
+      clerkConfigured,
+      xConfigured,
+    },
+  );
   const managedAccessEnabled = parseBoolean(process.env.LINEA_MANAGED_ACCESS_ENABLED, false);
 
   cachedConfig = {
+    authProvider,
+    authConfigured: authProvider !== "none",
     clerkConfigured,
+    xConfigured,
     managedAccessEnabled,
     localCredentialsEnabled: !managedAccessEnabled,
     postgresUrl: process.env.DATABASE_URL?.trim() || null,
@@ -75,6 +145,10 @@ export function getManagedAccessConfig() {
       process.env.LINEA_DEFAULT_TRANSCRIPTION_SECOND_LIMIT,
       7_200,
     ),
+    xClientId,
+    xClientSecret,
+    xCallbackUrl,
+    sessionSecret,
     managedApiKeys: {
       openai: managedOpenAIKey || undefined,
       elevenlabs: managedElevenLabsKey || undefined,

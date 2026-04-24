@@ -2,6 +2,7 @@ export type LineaAccessRole = "none" | "owner" | "gifted" | "blocked";
 export type LineaAccessStatus = "disabled" | "signed-out" | "blocked" | "active";
 export type LineaMeteringMode = "disabled" | "memory" | "postgres";
 export type LineaAccessSource = "none" | "env-owner" | "env-allowlist" | "postgres";
+export type LineaAuthProvider = "none" | "clerk" | "x";
 
 export type LineaQuotaBucket = {
   unit: "chars" | "seconds";
@@ -18,6 +19,8 @@ export type LineaQuotaWindow = {
 
 export type LineaManagedAccessSnapshot = {
   enabled: boolean;
+  authProvider: LineaAuthProvider;
+  authConfigured: boolean;
   clerkConfigured: boolean;
   managedKeysConfigured: boolean;
   localCredentialsEnabled: boolean;
@@ -45,6 +48,8 @@ export type LineaManagedAccessSnapshot = {
 
 const EMPTY_ACCESS_SNAPSHOT: LineaManagedAccessSnapshot = {
   enabled: false,
+  authProvider: "none",
+  authConfigured: false,
   clerkConfigured: false,
   managedKeysConfigured: false,
   localCredentialsEnabled: true,

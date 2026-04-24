@@ -7,6 +7,7 @@ import {
   type LineaManagedAccessSnapshot,
 } from "../../src/lib/linea-access";
 import { getManagedAccessConfig, hasAnyManagedProviderKey } from "./config";
+import { getDirectXSession } from "./direct-x";
 import {
   LineaAccessStore,
   type ExplainUsageEvent,
@@ -70,6 +71,8 @@ function createDisabledSnapshot(
 
   return {
     enabled: false,
+    authProvider: "none",
+    authConfigured: false,
     clerkConfigured: false,
     managedKeysConfigured: hasAnyManagedProviderKey(),
     localCredentialsEnabled: !getManagedAccessConfig().managedAccessEnabled,
@@ -163,11 +166,49 @@ export class LineaAccessService {
   private store = new LineaAccessStore();
 
   middleware() {
-    if (!getManagedAccessConfig().clerkConfigured) {
+    const config = getManagedAccessConfig();
+
+    if (config.authProvider !== "clerk" || !config.authConfigured) {
       return (_req: Request, _res: unknown, next: () => void) => next();
     }
 
     return clerkMiddleware();
+  }
+
+  private async getAuthenticatedProfile(req: Request): Promise<LineaUserProfile | null> {
+    const config = getManagedAccessConfig();
+
+    if (config.authProvider === "x") {
+      return getDirectXSession(req);
+    }
+
+    if (config.authProvider !== "clerk") {
+      return null;
+    }
+
+    const auth = getAuth(req);
+    const userId = auth.userId ?? null;
+
+    if (!userId) {
+      return null;
+    }
+
+    const user = (await clerkClient.users.getUser(userId).catch(() => null)) as
+      | {
+          id: string;
+          firstName?: string | null;
+          imageUrl?: string | null;
+          primaryEmailAddressId?: string | null;
+          emailAddresses?: Array<{ id?: string | null; emailAddress?: string | null }>;
+        }
+      | null;
+
+    return {
+      id: user?.id ?? userId,
+      email: user ? getPrimaryEmail(user) : null,
+      firstName: user?.firstName ?? null,
+      imageUrl: user?.imageUrl ?? null,
+    };
   }
 
   async getSessionSnapshot(req: Request): Promise<LineaManagedAccessSnapshot> {
@@ -175,31 +216,40 @@ export class LineaAccessService {
 
     if (!config.managedAccessEnabled) {
       return createDisabledSnapshot({
+        authProvider: config.authProvider,
+        authConfigured: config.authConfigured,
         clerkConfigured: config.clerkConfigured,
         managedKeysConfigured: hasAnyManagedProviderKey(),
         localCredentialsEnabled: config.localCredentialsEnabled,
       });
     }
 
-    if (!config.clerkConfigured) {
+    if (!config.authConfigured) {
       return createDisabledSnapshot({
         enabled: false,
+        authProvider: config.authProvider,
+        authConfigured: false,
         clerkConfigured: false,
         managedKeysConfigured: hasAnyManagedProviderKey(),
         localCredentialsEnabled: config.localCredentialsEnabled,
         access: {
           ...createDisabledSnapshot().access,
-          reason: "Clerk is not configured on the server.",
+          reason:
+            config.authProvider === "x"
+              ? "Direct X auth is not configured on the server."
+              : config.authProvider === "clerk"
+                ? "Clerk is not configured on the server."
+                : "Managed access needs an auth provider before sign-in can start.",
         },
       });
     }
 
-    const auth = getAuth(req);
-    const userId = auth.userId ?? null;
     const window = getWindowBounds();
     const baseSnapshot = createDisabledSnapshot({
       enabled: true,
-      clerkConfigured: true,
+      authProvider: config.authProvider,
+      authConfigured: true,
+      clerkConfigured: config.clerkConfigured,
       managedKeysConfigured: hasAnyManagedProviderKey(),
       localCredentialsEnabled: config.localCredentialsEnabled,
       access: {
@@ -222,26 +272,11 @@ export class LineaAccessService {
       },
     });
 
-    if (!userId) {
+    const profile = await this.getAuthenticatedProfile(req);
+
+    if (!profile) {
       return baseSnapshot;
     }
-
-    const user = (await clerkClient.users.getUser(userId).catch(() => null)) as
-      | {
-          id: string;
-          firstName?: string | null;
-          imageUrl?: string | null;
-          primaryEmailAddressId?: string | null;
-          emailAddresses?: Array<{ id?: string | null; emailAddress?: string | null }>;
-        }
-      | null;
-
-    const profile: LineaUserProfile = {
-      id: user?.id ?? userId,
-      email: user ? getPrimaryEmail(user) : null,
-      firstName: user?.firstName ?? null,
-      imageUrl: user?.imageUrl ?? null,
-    };
 
     if (!profile.email) {
       return {
@@ -320,7 +355,9 @@ export class LineaAccessService {
 
     return {
       enabled: true,
-      clerkConfigured: true,
+      authProvider: config.authProvider,
+      authConfigured: true,
+      clerkConfigured: config.clerkConfigured,
       managedKeysConfigured: hasAnyManagedProviderKey(),
       localCredentialsEnabled: config.localCredentialsEnabled,
       user: profile,

@@ -65,6 +65,7 @@ import {
   probeFabricRunner,
   submitFabricRunnerOcrPageJob,
 } from "@/lib/fabric-runner";
+import { fetchLineaOcrPage } from "@/lib/linea-services-ocr";
 import {
   clearDevInspectorEntries,
   getDevInspectorEntries,
@@ -90,6 +91,7 @@ type ReaderLayoutMode = "text" | "split";
 const SIDEBAR_WIDTH_MIN = 220;
 const SIDEBAR_WIDTH_MAX = 420;
 const DEFAULT_SIDEBAR_WIDTH = 280;
+const LITEPARSE_FALLBACK_CONFIDENCE = 0.6;
 
 function currentUrl() {
   return typeof window !== "undefined" ? window.location.href : "/";
@@ -156,6 +158,30 @@ function getDemoSampleFile(search: string) {
   return "attention-is-all-you-need.pdf" as const;
 }
 
+function getManagedAuthProviderLabel(snapshot: LineaManagedAccessSnapshot) {
+  if (snapshot.authProvider === "x") {
+    return "X";
+  }
+
+  return "Clerk";
+}
+
+function canLaunchManagedAuth(snapshot: LineaManagedAccessSnapshot) {
+  if (!snapshot.authConfigured) {
+    return false;
+  }
+
+  if (snapshot.authProvider === "clerk") {
+    return Boolean(getClerkPublishableKey());
+  }
+
+  return snapshot.authProvider === "x";
+}
+
+function buildDirectXSignInUrl(returnTo: string) {
+  return `/api/access/auth/x/start?return_to=${encodeURIComponent(returnTo)}`;
+}
+
 function getVoiceBlockedLabel(reason: string) {
   const normalized = reason.toLowerCase();
 
@@ -194,136 +220,78 @@ const FEATURED_DEMO_OPTIONS = [
   },
 ] as const;
 
-function ManagedAuthRedirect() {
+function ManagedAuthRedirect({ snapshot }: { snapshot: LineaManagedAccessSnapshot }) {
   const redirectUrl = useStableRedirectUrl();
-  const hasClerkProvider = Boolean(getClerkPublishableKey());
-  const title = hasClerkProvider ? "Taking you to sign in." : "Sign-in is still initializing.";
-  const body = hasClerkProvider
-    ? "Linea is handing this session off to Clerk for secure account verification. After sign-in, you will land right back in your reading space."
-    : "This deployment is missing the client-side Clerk publishable key in the current build, so the sign-in flow cannot start yet.";
-  const stepCopy = hasClerkProvider
+  const canStartAuth = canLaunchManagedAuth(snapshot);
+  const providerLabel = getManagedAuthProviderLabel(snapshot);
+  const usesDirectX = snapshot.authProvider === "x";
+  const title = canStartAuth ? "Taking you to sign in." : "Sign-in is still initializing.";
+  const body = canStartAuth
+    ? `Linea is handing this session off to ${providerLabel} for secure account verification. After sign-in, you will land right back in your reading space.`
+    : snapshot.authProvider === "x"
+      ? "This deployment is missing one or more server-side X auth settings, so the sign-in flow cannot start yet."
+      : "This deployment is missing the client-side Clerk publishable key in the current build, so the sign-in flow cannot start yet.";
+  const stepCopy = canStartAuth
     ? [
         {
           label: "Secure handoff",
-          detail: "We verify access first, then open Clerk in a dedicated sign-in flow.",
+          detail: `We verify access first, then open ${providerLabel} in a dedicated sign-in flow.`,
           icon: Lock,
         },
         {
           label: "Fast redirect",
-          detail: "Your browser should move to Clerk almost immediately.",
+          detail: `Your browser should move to ${providerLabel} almost immediately.`,
           icon: ArrowRight,
         },
         {
           label: "Return here",
-          detail: "Once you finish, Clerk sends you straight back into Linea.",
+          detail: `Once you finish, ${providerLabel} sends you straight back into Linea.`,
           icon: Sparkles,
         },
       ]
     : [
         {
-          label: "Missing client key",
-          detail: "The browser bundle needs a Clerk publishable key before it can render auth.",
+          label: snapshot.authProvider === "x" ? "Missing server config" : "Missing client key",
+          detail:
+            snapshot.authProvider === "x"
+              ? "The server needs the X client ID, client secret, callback URL, and session secret before it can start auth."
+              : "The browser bundle needs a Clerk publishable key before it can render auth.",
           icon: Lock,
         },
         {
           label: "Server is ready",
-          detail: "Managed access and the API are configured, so only the client build needs attention.",
+          detail:
+            snapshot.authProvider === "x"
+              ? "Managed access and the API are in place, so this is mainly an auth-config gap."
+              : "Managed access and the API are configured, so only the client build needs attention.",
           icon: AudioLines,
         },
         {
           label: "Next fix",
-          detail: "Redeploy with the live Clerk env in the client bundle and this screen will disappear.",
+          detail:
+            snapshot.authProvider === "x"
+              ? "Add the live X auth envs on the server and this screen will disappear."
+              : "Redeploy with the live Clerk env in the client bundle and this screen will disappear.",
           icon: Sparkles,
         },
       ];
 
-  if (!hasClerkProvider) {
-    return (
-      <div className="min-h-screen overflow-hidden bg-[#f7f0e6] text-ink">
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute left-[9%] top-[14%] h-56 w-56 rounded-full bg-accent/10 blur-[92px]" />
-          <div className="absolute bottom-[10%] right-[8%] h-72 w-72 rounded-full bg-[#d9c2ad]/30 blur-[112px]" />
-        </div>
-        <div className="relative flex min-h-screen items-center justify-center px-5 py-14 sm:px-8">
-          <div className="relative w-full max-w-[1040px] overflow-hidden rounded-[34px] border border-black/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.95),rgba(248,242,235,0.96))] shadow-[0_40px_120px_-64px_rgba(0,0,0,0.38)]">
-            <div className="grid gap-8 px-6 py-7 sm:px-8 lg:grid-cols-[minmax(0,1.1fr)_320px] lg:px-10 lg:py-10">
-              <div className="space-y-6">
-                <div className="inline-flex items-center gap-2 rounded-full border border-accent/12 bg-accent/8 px-3 py-1.5">
-                  <Lock size={12} className="text-accent" />
-                  <span className="text-[10px] font-mono font-semibold uppercase tracking-[0.18em] text-accent">
-                    Account handoff
-                  </span>
-                </div>
-                <div className="space-y-4">
-                  <h1 className="max-w-[14ch] font-serif text-[2.6rem] leading-[0.94] tracking-[-0.05em] text-ink sm:text-[3.55rem]">
-                    {title}
-                  </h1>
-                  <p className="max-w-[36rem] text-[1rem] leading-[1.85] text-ink/64">
-                    {body}
-                  </p>
-                </div>
-                <div className="rounded-[24px] border border-black/8 bg-white/72 p-5 shadow-[0_24px_60px_-48px_rgba(0,0,0,0.34)]">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-[16px] bg-accent/12 text-accent">
-                      {hasClerkProvider ? <LoaderCircle size={18} className="animate-spin" /> : <Lock size={18} />}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/48">
-                        {hasClerkProvider ? "Redirect in progress" : "Waiting on configuration"}
-                      </div>
-                      <div className="mt-1 text-[1rem] font-medium text-ink">
-                        {hasClerkProvider ? "Clerk is opening in a secure auth flow." : "This build needs one more client-side env."}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-black/6">
-                    <div className={`h-full rounded-full bg-accent ${hasClerkProvider ? "w-2/3 animate-pulse" : "w-1/3"}`} />
-                  </div>
-                </div>
-              </div>
-              <div className="rounded-[28px] border border-black/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.86),rgba(247,240,233,0.92))] p-5 shadow-[0_30px_80px_-62px_rgba(0,0,0,0.4)]">
-                <div className="space-y-3">
-                  <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/46">
-                    What Linea is doing
-                  </div>
-                  {stepCopy.map((step) => {
-                    const Icon = step.icon;
-                    return (
-                      <div
-                        key={step.label}
-                        className="rounded-[20px] border border-black/8 bg-white/82 p-4"
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] bg-accent/12 text-accent">
-                            <Icon size={15} />
-                          </div>
-                          <div className="min-w-0">
-                            <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/46">
-                              {step.label}
-                            </div>
-                            <p className="mt-2 text-[13px] leading-6 text-ink/62">
-                              {step.detail}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (!usesDirectX || !canStartAuth) {
+      return;
+    }
+
+    window.location.assign(buildDirectXSignInUrl(currentUrl()));
+  }, [canStartAuth, usesDirectX]);
 
   return (
     <div className="min-h-screen overflow-hidden bg-[#f7f0e6] text-ink">
-      <RedirectToSignIn
-        forceRedirectUrl={redirectUrl}
-        fallbackRedirectUrl={redirectUrl}
-      />
+      {snapshot.authProvider === "clerk" && canStartAuth ? (
+        <RedirectToSignIn
+          forceRedirectUrl={redirectUrl}
+          fallbackRedirectUrl={redirectUrl}
+        />
+      ) : null}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute left-[10%] top-[14%] h-56 w-56 rounded-full bg-accent/12 blur-[92px]" />
         <div className="absolute bottom-[8%] right-[10%] h-72 w-72 rounded-full bg-[#dac8b8]/36 blur-[110px]" />
@@ -349,19 +317,23 @@ function ManagedAuthRedirect() {
               <div className="rounded-[24px] border border-black/8 bg-white/72 p-5 shadow-[0_24px_60px_-48px_rgba(0,0,0,0.34)]">
                 <div className="flex items-center gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-[16px] bg-accent/12 text-accent">
-                    <LoaderCircle size={18} className="animate-spin" />
+                    {canStartAuth ? <LoaderCircle size={18} className="animate-spin" /> : <Lock size={18} />}
                   </div>
                   <div className="min-w-0">
                     <div className="text-[10px] font-mono font-semibold uppercase tracking-[0.16em] text-ink/48">
-                      Redirect in progress
+                      {canStartAuth ? "Redirect in progress" : "Waiting on configuration"}
                     </div>
                     <div className="mt-1 text-[1rem] font-medium text-ink">
-                      Clerk should take over in just a moment.
+                      {canStartAuth
+                        ? `${providerLabel} should take over in just a moment.`
+                        : snapshot.authProvider === "x"
+                          ? "This deployment needs a few X auth envs."
+                          : "This build needs one more client-side env."}
                     </div>
                   </div>
                 </div>
                 <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-black/6">
-                  <div className="h-full w-2/3 rounded-full bg-accent animate-pulse" />
+                  <div className={`h-full rounded-full bg-accent ${canStartAuth ? "w-2/3 animate-pulse" : "w-1/3"}`} />
                 </div>
               </div>
             </div>
@@ -761,7 +733,7 @@ function LandingWelcomeOverlay({
 function DevInspectorSidebar() {
   const [open, setOpen] = useState(false);
   const [entries, setEntries] = useState<DevInspectorEntry[]>(() => getDevInspectorEntries());
-  const [activeSources, setActiveSources] = useState<DevInspectorSource[]>(["ora", "vox", "voxd", "fabrun"]);
+  const [activeSources, setActiveSources] = useState<DevInspectorSource[]>(["ora", "vox", "voxd", "fabrun", "intake"]);
 
   useEffect(() => subscribeDevInspector(() => setEntries(getDevInspectorEntries())), []);
 
@@ -771,6 +743,7 @@ function DevInspectorSidebar() {
       vox: entries.filter((entry) => entry.source === "vox").length,
       voxd: entries.filter((entry) => entry.source === "voxd").length,
       fabrun: entries.filter((entry) => entry.source === "fabrun").length,
+      intake: entries.filter((entry) => entry.source === "intake").length,
     } satisfies Record<DevInspectorSource, number>;
   }, [entries]);
 
@@ -806,7 +779,7 @@ function DevInspectorSidebar() {
         <div className="linea-dev-inspector-header">
           <div>
             <div className="linea-dev-inspector-title">Request inspection</div>
-            <div className="linea-dev-inspector-subtitle">ora · vox · voxd · fabrun</div>
+            <div className="linea-dev-inspector-subtitle">ora · vox · voxd · fabrun · intake</div>
           </div>
           <div className="linea-dev-inspector-actions">
             <button type="button" className="linea-btn-ghost linea-btn-icon" onClick={() => setEntries(getDevInspectorEntries())}>
@@ -821,7 +794,7 @@ function DevInspectorSidebar() {
           </div>
         </div>
         <div className="linea-dev-inspector-filters">
-          {(["ora", "vox", "voxd", "fabrun"] as DevInspectorSource[]).map((source) => {
+          {(["ora", "vox", "voxd", "fabrun", "intake"] as DevInspectorSource[]).map((source) => {
             const active = activeSources.includes(source);
             return (
               <button
@@ -1557,6 +1530,20 @@ function getDocumentAnnotationStorageKey(document: ReaderDocument) {
     `${document.fileName}:${document.pageCount}`;
 
   return `linea:marginalia:${sourceKey}`;
+}
+
+function getBundledSampleFile(url?: string) {
+  if (!url) {
+    return null;
+  }
+
+  const sanitized = url.split("#")[0]?.split("?")[0] ?? "";
+  if (!sanitized.includes("/samples/")) {
+    return null;
+  }
+
+  const fileName = sanitized.split("/").at(-1) ?? "";
+  return fileName.toLowerCase().endsWith(".pdf") ? decodeURIComponent(fileName) : null;
 }
 
 function resolveSelectionRange(selection: ReaderTextSelection, page: ReaderPage) {
@@ -2836,7 +2823,7 @@ function Landing({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const shouldGateReaderEntry =
     accessSnapshot.enabled &&
-    accessSnapshot.clerkConfigured &&
+    accessSnapshot.authConfigured &&
     accessSnapshot.access.status === "signed-out";
   const welcomeStorageKey = accessSnapshot.user
     ? `linea:landing-welcome:${accessSnapshot.user.id}:${accessSnapshot.access.status}:${accessSnapshot.access.role}`
@@ -3714,11 +3701,11 @@ function ReaderPanel({
     <div style={{ display: "grid", gap: 12, marginTop: showSplitView ? 0 : 20 }}>
       <div className="linea-status">
         {ocrStatus?.state === "probing"
-          ? "Checking Fabric Runner for OCR support..."
+          ? ocrStatus.message ?? "Preparing local OCR..."
           : ocrStatus?.state === "running"
-            ? "Extracting text with Fabric Runner..."
+            ? ocrStatus.message ?? "Extracting text locally..."
             : ocrStatus?.state === "empty"
-              ? "OCR completed, but no readable text was recovered from this page."
+              ? ocrStatus.message ?? "OCR completed, but no readable text was recovered from this page."
               : ocrStatus?.state === "failed"
                 ? ocrStatus.message ?? "OCR failed for this page."
                 : "No extractable text on this page. This usually means the page is image-based or needs OCR."}
@@ -3734,8 +3721,12 @@ function ReaderPanel({
           {ocrStatus?.state === "failed" || ocrStatus?.state === "empty" ? "Retry OCR" : "Run OCR"}
         </button>
         <span className="linea-panel-label">
-          {document.source?.localPath
-            ? "Linea contacts local Fabric Runner only after you choose Run OCR"
+          {getBundledSampleFile(document.source?.url)
+            ? document.source?.localPath
+              ? "Linea runs LiteParse locally for bundled samples, then falls back to Fabric Runner when available."
+              : "Linea runs LiteParse locally for bundled sample documents."
+            : document.source?.localPath
+              ? "Linea contacts local Fabric Runner only after you choose Run OCR."
             : "OCR is currently available for local sample documents"}
         </span>
       </div>
@@ -4149,8 +4140,7 @@ export function App({ initialDocument }: AppProps) {
   const isAppRoute = isReaderRoute || isDemoRoute;
   const authGateEnabled =
     managedAccess.snapshot.enabled &&
-    managedAccess.snapshot.clerkConfigured &&
-    Boolean(getClerkPublishableKey());
+    canLaunchManagedAuth(managedAccess.snapshot);
   const isAttentionDemoDocument = Boolean(
     document?.source?.url?.includes("attention-is-all-you-need.pdf") ||
     document?.fileName.toLowerCase().includes("attention is all you need"),
@@ -4643,12 +4633,15 @@ export function App({ initialDocument }: AppProps) {
   }, [voice, currentPage]);
 
   const runOcrForPage = useCallback(async (pageNumber: number, force = false) => {
-    if (!document?.source?.localPath) {
+    const sampleFile = getBundledSampleFile(document?.source?.url);
+    const localPath = document?.source?.localPath?.trim() ?? "";
+
+    if (!sampleFile && !localPath) {
       setOcrByPage((current) => ({
         ...current,
         [pageNumber]: {
           state: "failed",
-          message: "Local OCR currently requires a local sample path.",
+          message: "OCR is currently available for bundled sample documents only.",
         },
       }));
       return;
@@ -4663,48 +4656,128 @@ export function App({ initialDocument }: AppProps) {
     }
 
     attemptedOcrRef.current.add(key);
-    setOcrByPage((current) => ({ ...current, [pageNumber]: { state: "probing" } }));
+    setOcrByPage((current) => ({
+      ...current,
+      [pageNumber]: {
+        state: "probing",
+        message: sampleFile ? "Preparing local LiteParse OCR..." : "Checking Fabric Runner for OCR support...",
+      },
+    }));
 
-    const runtime = await probeFabricRunner();
-    if (!runtime) {
+    let text = "";
+    let liteParseCandidateText = "";
+    let failureMessage: string | null = null;
+    let emptyMessage: string | null = null;
+    let liteParseFallbackReason: "empty" | "low-confidence" | null = null;
+
+    if (sampleFile) {
       setOcrByPage((current) => ({
         ...current,
         [pageNumber]: {
-          state: "failed",
-          message: "Fabric Runner is not reachable on localhost.",
+          state: "running",
+          message: "Extracting text with LiteParse...",
         },
+      }));
+
+      try {
+        const result = await fetchLineaOcrPage({
+          sampleFile,
+          page: pageNumber,
+          language: "eng",
+        });
+        const nextText = result.text.trim();
+        const shouldDeferToFabricRunner =
+          Boolean(localPath) &&
+          Boolean(nextText) &&
+          result.usedOcr &&
+          result.averageConfidence != null &&
+          result.averageConfidence < LITEPARSE_FALLBACK_CONFIDENCE;
+
+        if (shouldDeferToFabricRunner) {
+          liteParseCandidateText = nextText;
+          liteParseFallbackReason = "low-confidence";
+        } else {
+          text = nextText;
+        }
+
+        if (!nextText) {
+          liteParseFallbackReason = "empty";
+          emptyMessage = "LiteParse completed, but no readable text was recovered from this page.";
+        }
+      } catch (error) {
+        failureMessage = error instanceof Error ? error.message : "LiteParse OCR failed.";
+      }
+    }
+
+    if (!text && localPath) {
+      setOcrByPage((current) => ({
+        ...current,
+        [pageNumber]: {
+          state: "probing",
+          message: sampleFile
+            ? liteParseFallbackReason === "low-confidence"
+              ? "LiteParse confidence was low. Checking Fabric Runner fallback..."
+              : "LiteParse came up empty. Checking Fabric Runner fallback..."
+            : "Checking Fabric Runner for OCR support...",
+        },
+      }));
+
+      const runtime = await probeFabricRunner();
+      if (!runtime) {
+        failureMessage ??= "Fabric Runner is not reachable on localhost.";
+      } else {
+        try {
+          const job = await submitFabricRunnerOcrPageJob(runtime, {
+            pdfPath: localPath,
+            page: pageNumber,
+            language: "eng",
+          });
+
+          setOcrByPage((current) => ({
+            ...current,
+            [pageNumber]: {
+              state: "running",
+              message: "Extracting text with Fabric Runner...",
+            },
+          }));
+
+          const finalJob = await pollFabricRunnerJob(runtime, job.id);
+
+          if (finalJob.status !== "completed") {
+            throw new Error(finalJob.error ?? "OCR job failed");
+          }
+
+          text = finalJob.result?.text?.trim() ?? "";
+          if (!text) {
+            emptyMessage ??= "Fabric Runner completed, but no readable text was recovered from this page.";
+          }
+        } catch (error) {
+          failureMessage = error instanceof Error ? error.message : "Fabric Runner OCR failed.";
+        }
+      }
+    }
+
+    if (!text && liteParseCandidateText) {
+      text = liteParseCandidateText;
+    }
+
+    if (!text) {
+      setOcrByPage((current) => ({
+        ...current,
+        [pageNumber]: emptyMessage
+          ? {
+              state: "empty",
+              message: emptyMessage,
+            }
+          : {
+              state: "failed",
+              message: failureMessage ?? "OCR failed",
+            },
       }));
       return;
     }
 
     try {
-      const job = await submitFabricRunnerOcrPageJob(runtime, {
-        pdfPath: document.source.localPath,
-        page: pageNumber,
-        language: "eng",
-      });
-
-      setOcrByPage((current) => ({ ...current, [pageNumber]: { state: "running" } }));
-
-      const finalJob = await pollFabricRunnerJob(runtime, job.id);
-
-      if (finalJob.status !== "completed") {
-        throw new Error(finalJob.error ?? "OCR job failed");
-      }
-
-      const text = finalJob.result?.text?.trim() ?? "";
-
-      if (!text) {
-        setOcrByPage((current) => ({
-          ...current,
-          [pageNumber]: {
-            state: "empty",
-            message: "OCR completed with no text result.",
-          },
-        }));
-        return;
-      }
-
       setDocument((current) => {
         if (!current) return current;
         const pages = current.pages.map((entry) =>
@@ -4733,7 +4806,7 @@ export function App({ initialDocument }: AppProps) {
         ...current,
         [pageNumber]: {
           state: "failed",
-          message: error instanceof Error ? error.message : "OCR failed",
+          message: error instanceof Error ? error.message : "Failed to apply OCR text",
         },
       }));
     }
@@ -4812,7 +4885,7 @@ export function App({ initialDocument }: AppProps) {
   }
 
   if (shouldRedirectToSignIn) {
-    return <ManagedAuthRedirect />;
+    return <ManagedAuthRedirect snapshot={managedAccess.snapshot} />;
   }
 
   /* ── no document ── */

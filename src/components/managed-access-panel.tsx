@@ -5,6 +5,14 @@ import { ProviderCredentials } from "@/components/provider-credentials";
 import type { LineaManagedAccessSnapshot } from "@/lib/linea-access";
 import type { VoxCompanionRuntime } from "@/lib/vox-companion";
 
+function getAuthProviderLabel(snapshot: LineaManagedAccessSnapshot) {
+  if (snapshot.authProvider === "x") {
+    return "X";
+  }
+
+  return "Clerk";
+}
+
 function formatLimit(value: number | null, unit: "chars" | "seconds") {
   if (value == null) {
     return "Unlimited";
@@ -110,7 +118,7 @@ export function ManagedAccessPanel({
         <AccessNotice
           icon={<Shield className="size-4" />}
           title="Sign in for shared voice"
-          body="Use Clerk sign-in to unlock the managed provider keys attached to this deployment."
+          body={`Use ${getAuthProviderLabel(snapshot)} sign-in to unlock the managed provider keys attached to this deployment.`}
         />
       ) : (
         <AccessNotice
