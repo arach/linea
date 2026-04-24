@@ -43,7 +43,7 @@ Communication uses a loopback bridge on `127.0.0.1`.
 
 The stack is:
 
-- Browser: Linea website running at `https://uselinea.com`
+- Browser: Linea website running at `https://app.uselinea.com`
 - Companion: local app or daemon with native ML runtime
 - Transport: localhost HTTP for probing and job setup, WebSocket for live
   session updates
@@ -127,7 +127,7 @@ The companion must not behave like an open localhost API.
 Minimum requirements:
 
 - Only accept requests from approved origins
-- Default allowlist includes `https://uselinea.com`
+- Default allowlist includes `https://app.uselinea.com`
 - Require a short-lived session token or challenge handshake
 - Reject requests with missing or invalid session credentials
 - Bind only to `127.0.0.1`, never `0.0.0.0`
@@ -229,7 +229,7 @@ Example request:
   "type": "alignment",
   "sessionId": "sess_123",
   "source": {
-    "audioUrl": "https://uselinea.com/api/vox/audio/abc123",
+    "audioUrl": "https://app.uselinea.com/api/vox/audio/abc123",
     "format": "mp3"
   },
   "metadata": {
@@ -438,7 +438,7 @@ Expected behavior:
    upload audio blobs directly in Phase 1?
 3. Should the companion run continuously in the background, or only after a
    user explicitly opens it?
-4. Do we want first-run permission approval per domain before `uselinea.com`
+4. Do we want first-run permission approval per domain before `app.uselinea.com`
    can open a session?
 
 ## Recommendation

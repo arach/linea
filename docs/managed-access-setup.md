@@ -73,7 +73,7 @@ Use this when you want to bypass Clerk and authenticate against X directly.
 1. Set `LINEA_AUTH_PROVIDER=x`.
 2. Create or open your X app in the Developer Console.
 3. Enable OAuth 2.0 for the app and use a confidential client type.
-4. Add an exact callback URL such as `http://localhost:5173/api/access/auth/x/callback` for local development and your production callback URL for Vercel.
+4. Add an exact callback URL such as `http://localhost:5173/api/access/auth/x/callback` for local development and `https://app.uselinea.com/api/access/auth/x/callback` for production.
 5. Copy the X client ID and client secret into `LINEA_X_CLIENT_ID` and `LINEA_X_CLIENT_SECRET`.
 6. Set `LINEA_X_CALLBACK_URL` to the exact callback URL you registered in X.
 7. Generate a strong random value for `LINEA_SESSION_SECRET`.
